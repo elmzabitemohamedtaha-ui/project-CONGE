@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +67,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.ui.AuthViewModel
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.fragment.app.FragmentActivity
+import com.example.util.BiometricAuthHelper
+import com.example.util.BiometricStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,15 +81,20 @@ fun SecurityScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? FragmentActivity
     val currentUser by authViewModel?.currentUser?.collectAsState() ?: remember { mutableStateOf(null) }
 
-    var currentPassword by remember { mutableStateOf("") }
-    var newPassword by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
+    var biometricEnabled by remember { mutableStateOf(authViewModel?.isBiometricEnabled() ?: false) }
+    val bioStatus = remember { BiometricAuthHelper.checkBiometricStatus(context) }
+    var biometricTestResult by remember { mutableStateOf<String?>(null) }
 
-    var showCurrentPassword by remember { mutableStateOf(false) }
-    var showNewPassword by remember { mutableStateOf(false) }
-    var showConfirmPassword by remember { mutableStateOf(false) }
+    var currentPassword by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+    var confirmPassword by rememberSaveable { mutableStateOf("") }
+
+    var showCurrentPassword by rememberSaveable { mutableStateOf(false) }
+    var showNewPassword by rememberSaveable { mutableStateOf(false) }
+    var showConfirmPassword by rememberSaveable { mutableStateOf(false) }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var successMessage by remember { mutableStateOf<String?>(null) }
@@ -134,14 +147,20 @@ fun SecurityScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(paddingValues),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 760.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
             // Header Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -182,6 +201,142 @@ fun SecurityScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            // Biometric Protection Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                ),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Fingerprint,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Authentification Biométrique",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Sécurise les dossiers de congés confidentiels",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = biometricEnabled,
+                            onCheckedChange = { isChecked ->
+                                biometricEnabled = isChecked
+                                authViewModel?.setBiometricEnabled(isChecked)
+                                Toast.makeText(
+                                    context,
+                                    if (isChecked) "Biométrie activée" else "Biométrie désactivée",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (!biometricEnabled) "✓ Connexion biométrique désactivée dans toute l'application" else "Connexion biométrique active",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (!biometricEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+
+                    if (activity != null && bioStatus is BiometricStatus.Ready && biometricEnabled) {
+                        OutlinedButton(
+                            onClick = {
+                                BiometricAuthHelper.authenticate(
+                                    activity = activity,
+                                    title = "Test Biométrique",
+                                    subtitle = "Vérification de sécurité TimeOff",
+                                    description = "Touchez le capteur d'empreinte pour tester l'authentification.",
+                                    negativeButtonText = "Fermer",
+                                    onSuccess = {
+                                        biometricTestResult = "✓ Authentification biométrique validée avec succès !"
+                                        Toast.makeText(context, "Authentification réussie !", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { _, err ->
+                                        biometricTestResult = "Résultat : $err"
+                                    }
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Fingerprint,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Tester l'empreinte / Face ID")
+                        }
+                    }
+
+                    if (biometricTestResult != null && biometricEnabled) {
+                        Text(
+                            text = biometricTestResult!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (biometricEnabled) {
+                        Button(
+                            onClick = {
+                                biometricEnabled = false
+                                biometricTestResult = null
+                                authViewModel?.disableBiometric()
+                                Toast.makeText(context, "Connexion biométrique annulée dans toute l'application", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Annuler la connexion biométrique")
+                        }
                     }
                 }
             }
@@ -480,6 +635,7 @@ fun SecurityScreen(
             }
         }
     }
+}
 }
 
 @Composable

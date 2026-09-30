@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -66,6 +68,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -158,7 +161,7 @@ val LEAVE_TYPE_OPTIONS = listOf(
  * Features:
  * - Dropdown selection for Leave Type with custom badges and icons
  * - Date Picker Dialogs for Start and End dates with instant duration calculation
- * - Quick period presets ("Demain", "1 semaine", "2 semaines")
+ * - Quick period presets ("Demain", "1 semaine", com.example.ui.i18n.tr("req_2_weeks"))
  * - Balance awareness & real-time validation warnings
  * - Optional attachment support
  * - Clean Room Database integration
@@ -174,21 +177,25 @@ fun LeaveRequestForm(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Form Fields State
-    var selectedTypeOption by remember { mutableStateOf(LEAVE_TYPE_OPTIONS[0]) }
-    var dropdownExpanded by remember { mutableStateOf(false) }
+    // Form Fields State (Preserved across screen rotation)
+    var selectedTypeName by rememberSaveable { mutableStateOf(LEAVE_TYPE_OPTIONS[0].name) }
+    val selectedTypeOption = remember(selectedTypeName) {
+        LEAVE_TYPE_OPTIONS.find { it.name == selectedTypeName } ?: LEAVE_TYPE_OPTIONS[0]
+    }
+    var dropdownExpanded by rememberSaveable { mutableStateOf(false) }
 
-    var startDate by remember { mutableStateOf("") }
-    var endDate by remember { mutableStateOf("") }
-    var motif by remember { mutableStateOf("") }
-    var attachedFileName by remember { mutableStateOf<String?>(null) }
+    var startDate by rememberSaveable { mutableStateOf("") }
+    var endDate by rememberSaveable { mutableStateOf("") }
+    var motif by rememberSaveable { mutableStateOf("") }
+    var attachedFileName by rememberSaveable { mutableStateOf<String?>(null) }
+    var attachedFileUri by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // Dialogs & UI Feedback
-    var showStartDatePicker by remember { mutableStateOf(false) }
-    var showEndDatePicker by remember { mutableStateOf(false) }
-    var isSubmitting by remember { mutableStateOf(false) }
-    var validationError by remember { mutableStateOf<String?>(null) }
-    var submitSuccessMessage by remember { mutableStateOf<String?>(null) }
+    // Dialogs & UI Feedback (Preserved across screen rotation)
+    var showStartDatePicker by rememberSaveable { mutableStateOf(false) }
+    var showEndDatePicker by rememberSaveable { mutableStateOf(false) }
+    var isSubmitting by rememberSaveable { mutableStateOf(false) }
+    var validationError by rememberSaveable { mutableStateOf<String?>(null) }
+    var submitSuccessMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Date computation & validation helpers
     val tomorrowUtcMillis = remember { getTomorrowUtcMillis() }
@@ -240,6 +247,20 @@ fun LeaveRequestForm(
         if (uri != null) {
             val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "justificatif.pdf"
             attachedFileName = fileName
+            coroutineScope.launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream != null) {
+                        val file = java.io.File(context.filesDir, "attachment_${System.currentTimeMillis()}_$fileName")
+                        java.io.FileOutputStream(file).use { output ->
+                            inputStream.copyTo(output)
+                        }
+                        attachedFileUri = file.absolutePath
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -273,16 +294,19 @@ fun LeaveRequestForm(
                     }
                     showStartDatePicker = false
                 }) {
-                    Text("Confirmer", fontWeight = FontWeight.Bold)
+                    Text(com.example.ui.i18n.tr("btn_confirm"), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showStartDatePicker = false }) {
-                    Text("Annuler")
+                    Text(com.example.ui.i18n.tr("btn_cancel"))
                 }
             }
         ) {
-            DatePicker(state = startDatePickerState)
+            DatePicker(
+                state = startDatePickerState,
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            )
         }
     }
 
@@ -328,16 +352,19 @@ fun LeaveRequestForm(
                     }
                     showEndDatePicker = false
                 }) {
-                    Text("Confirmer", fontWeight = FontWeight.Bold)
+                    Text(com.example.ui.i18n.tr("btn_confirm"), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showEndDatePicker = false }) {
-                    Text("Annuler")
+                    Text(com.example.ui.i18n.tr("btn_cancel"))
                 }
             }
         ) {
-            DatePicker(state = endDatePickerState)
+            DatePicker(
+                state = endDatePickerState,
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            )
         }
     }
 
@@ -486,7 +513,7 @@ fun LeaveRequestForm(
                                     }
                                 } else null,
                                 onClick = {
-                                    selectedTypeOption = option
+                                    selectedTypeName = option.name
                                     dropdownExpanded = false
                                 }
                             )
@@ -549,18 +576,6 @@ fun LeaveRequestForm(
                 ) {
                     val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
-                    // Tomorrow 1 day
-                    SuggestionChip(
-                        onClick = {
-                            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
-                            val dateStr = sdf.format(cal.time)
-                            startDate = dateStr
-                            endDate = dateStr
-                            validationError = null
-                        },
-                        label = { Text("Demain (1j)", style = MaterialTheme.typography.labelSmall) },
-                        shape = RoundedCornerShape(8.dp)
-                    )
 
                     // Next Week (5 days)
                     SuggestionChip(
@@ -576,7 +591,7 @@ fun LeaveRequestForm(
                             endDate = sdf.format(cal.time)
                             validationError = null
                         },
-                        label = { Text("Semaine pro. (5j)", style = MaterialTheme.typography.labelSmall) },
+                        label = { Text(com.example.ui.i18n.tr("req_next_week"), style = MaterialTheme.typography.labelSmall) },
                         shape = RoundedCornerShape(8.dp)
                     )
 
@@ -594,7 +609,7 @@ fun LeaveRequestForm(
                             endDate = sdf.format(cal.time)
                             validationError = null
                         },
-                        label = { Text("2 semaines", style = MaterialTheme.typography.labelSmall) },
+                        label = { Text(com.example.ui.i18n.tr("req_2_weeks"), style = MaterialTheme.typography.labelSmall) },
                         shape = RoundedCornerShape(8.dp)
                     )
                 }
@@ -610,43 +625,43 @@ fun LeaveRequestForm(
                     Box(modifier = Modifier.weight(1f)) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "Date de début",
+                                text = com.example.ui.i18n.tr("req_start"),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (isStartDateInPast) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            OutlinedTextField(
-                                value = startDate,
-                                onValueChange = {
-                                    startDate = it
-                                    validationError = null
-                                    submitSuccessMessage = null
-                                },
-                                placeholder = { Text("jj/mm/aaaa", style = MaterialTheme.typography.bodySmall) },
-                                isError = isStartDateInPast,
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = { showStartDatePicker = true },
-                                        modifier = Modifier.testTag("start_date_picker_button")
-                                    ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = startDate,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    placeholder = { Text("jj/mm/aaaa", style = MaterialTheme.typography.bodySmall) },
+                                    isError = isStartDateInPast,
+                                    trailingIcon = {
                                         Icon(
                                             imageVector = Icons.Filled.CalendarToday,
                                             contentDescription = "Sélectionner la date de début",
                                             tint = if (isStartDateInPast) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(20.dp)
                                         )
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth().testTag("start_date_input"),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().testTag("start_date_input"),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                                    )
                                 )
-                            )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(Color.Transparent)
+                                        .clickable { showStartDatePicker = true }
+                                )
+                            }
                         }
                     }
 
@@ -654,43 +669,43 @@ fun LeaveRequestForm(
                     Box(modifier = Modifier.weight(1f)) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "Date de fin",
+                                text = com.example.ui.i18n.tr("req_end"),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (isEndDateInPast || isEndBeforeStart) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            OutlinedTextField(
-                                value = endDate,
-                                onValueChange = {
-                                    endDate = it
-                                    validationError = null
-                                    submitSuccessMessage = null
-                                },
-                                placeholder = { Text("jj/mm/aaaa", style = MaterialTheme.typography.bodySmall) },
-                                isError = isEndDateInPast || isEndBeforeStart,
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = { showEndDatePicker = true },
-                                        modifier = Modifier.testTag("end_date_picker_button")
-                                    ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = endDate,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    placeholder = { Text("jj/mm/aaaa", style = MaterialTheme.typography.bodySmall) },
+                                    isError = isEndDateInPast || isEndBeforeStart,
+                                    trailingIcon = {
                                         Icon(
                                             imageVector = Icons.Filled.CalendarToday,
                                             contentDescription = "Sélectionner la date de fin",
                                             tint = if (isEndDateInPast || isEndBeforeStart) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(20.dp)
                                         )
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth().testTag("end_date_input"),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().testTag("end_date_input"),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                                    )
                                 )
-                            )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(Color.Transparent)
+                                        .clickable { showEndDatePicker = true }
+                                )
+                            }
                         }
                     }
                 }
@@ -709,7 +724,7 @@ fun LeaveRequestForm(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = "La date de début doit être ultérieure à aujourd'hui.",
+                            text = com.example.ui.i18n.tr("req_dates_past"),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -1009,7 +1024,7 @@ fun LeaveRequestForm(
 
                     // 1. Validation checks
                     if (startDate.isBlank() || endDate.isBlank()) {
-                        validationError = "Veuillez renseigner les dates de début et de fin."
+                        validationError = com.example.ui.i18n.I18nManager.getString("req_dates_error")
                         return@Button
                     }
 
@@ -1017,35 +1032,60 @@ fun LeaveRequestForm(
                     val end = parseFlexibleDate(endDate)
 
                     if (start == null || end == null) {
-                        validationError = "Format de date invalide. Utilisez le sélecteur ou le format jj/mm/aaaa."
+                        validationError = com.example.ui.i18n.I18nManager.getString("req_dates_invalid")
                         return@Button
                     }
 
                     if (start.before(tomorrowDate)) {
-                        validationError = "La date de début doit être ultérieure à aujourd'hui."
+                        validationError = com.example.ui.i18n.I18nManager.getString("req_dates_past")
                         return@Button
                     }
 
                     if (end.before(tomorrowDate)) {
-                        validationError = "La date de fin doit être ultérieure à aujourd'hui."
+                        validationError = com.example.ui.i18n.I18nManager.getString("req_dates_past")
                         return@Button
                     }
 
                     if (end.before(start)) {
-                        validationError = "La date de fin ne peut pas être antérieure à la date de début."
+                        validationError = com.example.ui.i18n.I18nManager.getString("req_dates_order")
                         return@Button
+                    }
+                    
+                    if (startDate == endDate) {
+                        validationError = com.example.ui.i18n.I18nManager.getString("req_dates_equal")
+                        return@Button
+                    }
+
+                    val user = currentUser ?: com.example.data.LocalStorageManager(context).getCurrentUser()
+                    if (user == null) {
+                        validationError = "Veuillez vous connecter pour soumettre une demande."
+                        return@Button
+                    }
+                    
+                    if (selectedTypeOption.deductsFromAllowance) {
+                        val requestedDays = calculateBusinessDays(start, end)
+                        val isPaidLeave = selectedTypeOption.name.contains("Payé", ignoreCase = true)
+                        val isRTT = selectedTypeOption.name.contains("RTT", ignoreCase = true)
+                        
+                        if (isPaidLeave) {
+                            val remaining = user.paidLeaveAllowance - user.paidLeaveUsed
+                            if (requestedDays > remaining) {
+                                validationError = "Solde insuffisant (Restant : $remaining jours, Demandés : $requestedDays jours)."
+                                return@Button
+                            }
+                        } else if (isRTT) {
+                            val remaining = user.rttAllowance - user.rttUsed
+                            if (requestedDays > remaining) {
+                                validationError = "Solde RTT insuffisant (Restant : $remaining jours, Demandés : $requestedDays jours)."
+                                return@Button
+                            }
+                        }
                     }
 
                     validationError = null
                     isSubmitting = true
 
-                    val user = currentUser ?: User(
-                        email = "khadija@gmail.com",
-                        fullName = "khadija el ferrouni",
-                        passwordHash = "MOHAMEDTAHA123",
-                        jobTitle = "Développeur Senior",
-                        department = "Ingénierie & IT"
-                    )
+
 
                     coroutineScope.launch {
                         try {
@@ -1056,20 +1096,24 @@ fun LeaveRequestForm(
                                 startDateStr = startDate,
                                 endDateStr = endDate,
                                 reason = motif,
-                                attachmentName = attachedFileName
+                                attachmentName = attachedFileName,
+                                attachmentUri = attachedFileUri
                             )
 
                             // Deduct the requested days from the user's balance
                             val isPaidLeave = selectedTypeOption.name.contains("Payé", ignoreCase = true)
                             val count = createdRequest.daysCount
+                            val isRTTLeave = selectedTypeOption.name.contains("RTT", ignoreCase = true)
                             val updatedUser = if (isPaidLeave) {
                                 user.copy(paidLeaveUsed = user.paidLeaveUsed + count)
-                            } else {
+                            } else if (isRTTLeave) {
                                 user.copy(rttUsed = user.rttUsed + count)
+                            } else {
+                                user
                             }
                             onUserUpdate?.invoke(updatedUser)
 
-                            submitSuccessMessage = "Demande de ${selectedTypeOption.name} ($startDate au $endDate) soumise avec succès !"
+                            submitSuccessMessage = com.example.ui.i18n.I18nManager.getString("req_success")
                             isSubmitting = false
 
                             // Reset form fields

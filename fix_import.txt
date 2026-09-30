@@ -1,0 +1,11 @@
+<<<<
+import androidx.compose.material.icons.filled.Apartment
+====
+import androidx.compose.material.icons.filled.Apartment
+import androidx.compose.material.icons.filled.AttachFile
+>>>>
+<<<<
+                        imageVector = androidx.compose.material.icons.Icons.Filled.AttachFile,
+====
+                        imageVector = Icons.Filled.AttachFile,
+>>>>

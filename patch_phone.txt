@@ -1,0 +1,15 @@
+<<<<
+                    OutlinedTextField(
+                        value = editPhone,
+                        onValueChange = { newValue -> 
+                            if (newValue.all { it.isDigit() }) {
+                                editPhone = newValue
+                            }
+                        },
+====
+                    OutlinedTextField(
+                        value = editPhone,
+                        onValueChange = { newValue -> 
+                            editPhone = newValue.filter { it.isDigit() }
+                        },
+>>>>

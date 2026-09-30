@@ -11,6 +11,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -62,15 +65,25 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import com.example.ui.i18n.I18nManager
+import androidx.compose.runtime.collectAsState
+
+import androidx.compose.material3.Text
+
+
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,31 +123,37 @@ fun ProfileScreen(
     val context = LocalContext.current
     val currentUser by authViewModel?.currentUser?.collectAsState() ?: remember { mutableStateOf(null) }
 
-    val fullName = currentUser?.fullName ?: "walid elmzabite"
-    val matricule = currentUser?.matricule ?: "EMP-0002"
-    val jobTitle = currentUser?.jobTitle ?: "Développeur Senior"
-    val department = currentUser?.department ?: "Ingénierie & IT"
-    val email = currentUser?.email ?: "walid@gmail.com"
-    val phone = currentUser?.phone ?: "+212 6 12 34 56 78"
-    val hireDate = currentUser?.hireDate ?: "12 Mars 2018"
-    val officeLocation = currentUser?.officeLocation ?: "Nouacer,l'atelier"
+    val fullName = currentUser?.fullName ?: "Collaborateur"
+    val matricule = currentUser?.matricule ?: "EMP-0001"
+    val jobTitle = currentUser?.jobTitle ?: "Collaborateur"
+    val department = currentUser?.department ?: "Direction & Administration"
+    val email = currentUser?.email ?: ""
+    val phone = currentUser?.phone ?: ""
+    val hireDate = currentUser?.hireDate ?: "01 Janvier 2024"
+    val officeLocation = currentUser?.officeLocation ?: "Bureau Central"
     val avatarUrl = currentUser?.avatarUrl ?: ""
 
-    var showEditProfileDialog by remember { mutableStateOf(false) }
-    var showPhotoOptionsDialog by remember { mutableStateOf(false) }
-    var showUrlInputDialog by remember { mutableStateOf(false) }
-    var inputCustomUrl by remember { mutableStateOf("") }
+    var showEditProfileDialog by rememberSaveable { mutableStateOf(false) }
+    var showPhotoOptionsDialog by rememberSaveable { mutableStateOf(false) }
+    var showUrlInputDialog by rememberSaveable { mutableStateOf(false) }
+    var inputCustomUrl by rememberSaveable { mutableStateOf("") }
 
-    // Dialog state
-    var editFullName by remember(currentUser) { mutableStateOf(fullName) }
-    var editJobTitle by remember(currentUser) { mutableStateOf(jobTitle) }
-    var editDepartment by remember(currentUser) { mutableStateOf(department) }
-    var editPhone by remember(currentUser) { mutableStateOf(phone) }
-    var editOffice by remember(currentUser) { mutableStateOf(officeLocation) }
-    var showCloudSyncDialog by remember { mutableStateOf(false) }
+    // Dialog state (Preserved across rotation)
+    var editFullName by rememberSaveable { mutableStateOf(fullName) }
+    var editJobTitle by rememberSaveable { mutableStateOf(jobTitle) }
+    var editDepartment by rememberSaveable { mutableStateOf(department) }
+    var editPhone by rememberSaveable { mutableStateOf(phone) }
+    var editOffice by rememberSaveable { mutableStateOf(officeLocation) }
+    var editEmail by rememberSaveable { mutableStateOf(email) }
+    var showCloudSyncDialog by rememberSaveable { mutableStateOf(false) }
+    var showSupabaseDialog by rememberSaveable { mutableStateOf(false) }
+    var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
 
     val syncManager = remember { com.example.data.FirestoreSyncManager.getInstance(context) }
     val isCloudConnected by syncManager.isCloudConnected.collectAsState()
+
+    val supabaseManager = remember { com.example.data.SupabaseSyncManager.getInstance(context) }
+    val isSupabaseConnected by supabaseManager.isConnected.collectAsState()
 
     // Image Picker Launcher from Gallery
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -163,7 +182,7 @@ fun ProfileScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Mon Profil",
+                            text = com.example.ui.i18n.tr("prof_title"),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -187,15 +206,18 @@ fun ProfileScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .padding(paddingValues),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // Profile Header
+            // Orientation & width check: 2 columns in landscape mode or on wide screens
+            val isWideScreen = maxWidth >= 840.dp || (maxWidth > maxHeight && maxWidth >= 580.dp)
+
+            val profileInfoSection = @Composable {
+                Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                    // Profile Header
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -345,12 +367,12 @@ fun ProfileScreen(
                 )
                 ProfileInfoCard(
                     icon = Icons.Filled.Mail,
-                    label = "Email Professionnel",
+                    label = com.example.ui.i18n.tr("prof_email"),
                     value = email
                 )
                 ProfileInfoCard(
                     icon = Icons.Filled.Phone,
-                    label = "Téléphone",
+                    label = com.example.ui.i18n.tr("prof_phone"),
                     value = phone
                 )
                 ProfileInfoCard(
@@ -364,15 +386,18 @@ fun ProfileScreen(
                     value = officeLocation
                 )
             }
+        }
+    }
 
-            // Paramètres de l'application
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Paramètres du compte & Apparence",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+    val profileSettingsSection = @Composable {
+        // Paramètres de l'application
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = "Paramètres du compte & Apparence",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
 
                 // Global Theme Mode Selector (Clair / Sombre / Système)
                 ThemeModeSelectorCard()
@@ -454,9 +479,44 @@ fun ProfileScreen(
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
                         SettingRow(
+                            icon = Icons.Filled.Storage,
+                            title = "Base de données Supabase",
+                            subtitle = if (isSupabaseConnected) "Connecté (Synchronisation cloud)" else "Configurer la liaison Supabase",
+                            onClick = { showSupabaseDialog = true },
+                            trailing = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSupabaseConnected) Color(0xFF3ECF8E) else Color.Gray)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Filled.ChevronRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                }
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
+                        val currentLangCode by I18nManager.currentLang.collectAsState()
+                        val currentLangName = when(currentLangCode) {
+                            "fr" -> "Français"
+                            "en" -> "English"
+                            "ar" -> "العربية"
+                            "de" -> "Deutsch"
+                            else -> "Français"
+                        }
+                        
+                        SettingRow(
                             icon = Icons.Filled.Language,
-                            title = "Langue de l'interface",
-                            subtitle = "Français",
+                            title = com.example.ui.i18n.tr("prof_lang"),
+                            subtitle = currentLangName,
+                            onClick = { showLanguageDialog = true },
                             trailing = {
                                 Icon(
                                     imageVector = Icons.Filled.ChevronRight,
@@ -468,45 +528,138 @@ fun ProfileScreen(
                     }
                 }
             }
+        }
 
-            // Logout Section
-            Column(
+    val profileLogoutSection = @Composable {
+        // Logout Section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp, bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Button(
+                onClick = {
+                    authViewModel?.logout()
+                    onLogout()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                    .height(52.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Button(
-                    onClick = {
-                        authViewModel?.logout()
-                        onLogout()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = null)
-                        Text(text = "Se Déconnecter", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                    Text(text = com.example.ui.i18n.tr("btn_logout"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+            Text(
+                text = "TimeOff • Connecté en tant que $fullName",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = 1200.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = if (isWideScreen) 32.dp else 16.dp, vertical = if (isWideScreen) 24.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        if (isWideScreen) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(32.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    profileInfoSection()
+                    profileLogoutSection()
+                }
+                Column(
+                    modifier = Modifier.weight(1.1f),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    profileSettingsSection()
+                }
+            }
+        } else {
+            profileInfoSection()
+            profileSettingsSection()
+            profileLogoutSection()
+        }
+    }
+        }
+    }
+
+    // Language Selection Dialog
+    if (showLanguageDialog) {
+        val currentLangCode by I18nManager.currentLang.collectAsState()
+        val languages = listOf(
+            "fr" to "Français",
+            "en" to "English",
+            "ar" to "العربية",
+            "de" to "Deutsch"
+        )
+        
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = {
+                Text(com.example.ui.i18n.tr("select_language"))
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .selectableGroup()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    languages.forEach { (code, name) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .selectable(
+                                    selected = (code == currentLangCode),
+                                    onClick = { 
+                                        I18nManager.setLang(context, code)
+                                        showLanguageDialog = false
+                                    }
+                                )
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = (code == currentLangCode),
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(text = name, style = MaterialTheme.typography.bodyLarge)
+                        }
                     }
                 }
-                Text(
-                    text = "TimeOff • Connecté en tant que $fullName",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) {
+                    Text(com.example.ui.i18n.tr("btn_close"))
+                }
             }
-        }
+        )
     }
 
     // Photo Selection / Options Dialog
@@ -776,29 +929,45 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = editJobTitle,
                         onValueChange = { editJobTitle = it },
-                        label = { Text("Poste / Fonction") },
+                        label = { Text(com.example.ui.i18n.tr("prof_pos")) },
                         leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = false,
+                        readOnly = true
                     )
                     OutlinedTextField(
                         value = editDepartment,
                         onValueChange = { editDepartment = it },
-                        label = { Text("Département") },
+                        label = { Text(com.example.ui.i18n.tr("prof_dept")) },
                         leadingIcon = { Icon(Icons.Filled.Apartment, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = false,
+                        readOnly = true
+                    )
+                    OutlinedTextField(
+                        value = editEmail,
+                        onValueChange = { editEmail = it },
+                        label = { Text(com.example.ui.i18n.tr("prof_email")) },
+                        leadingIcon = { Icon(Icons.Filled.Mail, contentDescription = null) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     )
                     OutlinedTextField(
                         value = editPhone,
-                        onValueChange = { editPhone = it },
+                        onValueChange = { newValue -> 
+                            editPhone = newValue.filter { it.isDigit() }
+                        },
                         label = { Text("Numéro de téléphone") },
                         leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                     )
                     OutlinedTextField(
                         value = editOffice,
@@ -816,13 +985,14 @@ fun ProfileScreen(
                     onClick = {
                         if (currentUser != null) {
                             val updated = currentUser!!.copy(
+                                email = editEmail.trim(),
                                 fullName = editFullName.trim(),
                                 jobTitle = editJobTitle.trim(),
                                 department = editDepartment.trim(),
                                 phone = editPhone.trim(),
                                 officeLocation = editOffice.trim()
                             )
-                            authViewModel?.updateUserProfile(updated)
+                            authViewModel?.updateUserProfile(updated, currentUser!!.email)
                             Toast.makeText(context, "Profil mis à jour avec succès !", Toast.LENGTH_SHORT).show()
                         }
                         showEditProfileDialog = false
@@ -841,7 +1011,17 @@ fun ProfileScreen(
 
     if (showCloudSyncDialog) {
         CloudSyncManagementDialog(
-            onDismiss = { showCloudSyncDialog = false }
+            onDismiss = { showCloudSyncDialog = false },
+            onOpenSupabase = {
+                showCloudSyncDialog = false
+                showSupabaseDialog = true
+            }
+        )
+    }
+
+    if (showSupabaseDialog) {
+        com.example.ui.components.SupabaseManagementDialog(
+            onDismiss = { showSupabaseDialog = false }
         )
     }
 }

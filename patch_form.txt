@@ -1,0 +1,59 @@
+<<<<
+    var attachedFileName by remember { mutableStateOf<String?>(null) }
+====
+    var attachedFileName by remember { mutableStateOf<String?>(null) }
+    var attachedFileUri by remember { mutableStateOf<String?>(null) }
+>>>>
+<<<<
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "justificatif.pdf"
+            attachedFileName = fileName
+        }
+    }
+====
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "justificatif.pdf"
+            attachedFileName = fileName
+            coroutineScope.launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream != null) {
+                        val file = java.io.File(context.filesDir, "attachment_${System.currentTimeMillis()}_$fileName")
+                        java.io.FileOutputStream(file).use { output ->
+                            inputStream.copyTo(output)
+                        }
+                        attachedFileUri = file.absolutePath
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+>>>>
+<<<<
+                            val createdRequest = repo.submitLeaveRequest(
+                                user = user,
+                                leaveType = selectedTypeOption.name,
+                                startDateStr = startDate,
+                                endDateStr = endDate,
+                                reason = motif,
+                                attachmentName = attachedFileName
+                            )
+====
+                            val createdRequest = repo.submitLeaveRequest(
+                                user = user,
+                                leaveType = selectedTypeOption.name,
+                                startDateStr = startDate,
+                                endDateStr = endDate,
+                                reason = motif,
+                                attachmentName = attachedFileName,
+                                attachmentUri = attachedFileUri
+                            )
+>>>>

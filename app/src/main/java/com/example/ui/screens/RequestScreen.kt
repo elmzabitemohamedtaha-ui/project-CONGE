@@ -5,6 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.material.icons.filled.BeachAccess
+import androidx.compose.material.icons.filled.MedicalServices
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,10 +21,12 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -44,6 +52,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -137,8 +147,13 @@ private fun parseDate(dateStr: String): Date? {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RequestScreen(authViewModel: AuthViewModel? = null) {
+fun RequestScreen(
+    authViewModel: AuthViewModel? = null,
+    onNavigateBack: (() -> Unit)? = null
+) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val currentUser by authViewModel?.currentUser?.collectAsState() ?: remember { mutableStateOf(null) }
     val userAvatarUrl = currentUser?.avatarUrl ?: ""
     val userName = currentUser?.fullName ?: "Collaborateur"
@@ -147,6 +162,7 @@ fun RequestScreen(authViewModel: AuthViewModel? = null) {
     val rttRemaining = currentUser?.let { it.rttAllowance - it.rttUsed } ?: 7
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -158,10 +174,13 @@ fun RequestScreen(authViewModel: AuthViewModel? = null) {
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { /* Back */ }) {
+                    IconButton(
+                        onClick = { onNavigateBack?.invoke() },
+                        modifier = Modifier.testTag("request_screen_back_button")
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = "Retour",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -183,64 +202,180 @@ fun RequestScreen(authViewModel: AuthViewModel? = null) {
             )
         }
     ) { paddingValues ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(paddingValues),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // Intro
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "Nouvelle Demande",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Sélectionnez le type de congé et les dates souhaitées pour soumettre votre absence.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            // Reorganize layout: 2 columns in landscape or on wide displays, 1 column in portrait
+            val isTwoColumn = maxWidth >= 840.dp || (maxWidth > maxHeight && maxWidth >= 580.dp)
 
-            // Dedicated, feature-complete Leave Request Form component
-            LeaveRequestForm(
-                currentUser = currentUser,
-                modifier = Modifier.fillMaxWidth(),
-                onUserUpdate = { authViewModel?.updateUserProfile(it) }
-            )
+            if (isTwoColumn) {
+                // Desktop / Tablet / Landscape 2-column layout
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 1200.dp)
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    // Left Column: Form
+                    Column(
+                        modifier = Modifier.weight(1.15f),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Nouvelle Demande",
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Sélectionnez le type de congé et les dates souhaitées pour soumettre votre absence.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
-            // Info Cards (Summary of Solde)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                InfoCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Filled.Info,
-                    title = "SOLDE CONGÉS",
-                    value = "$cpRemaining j",
-                    subtitle = "Congés payés disponibles",
-                    bgColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                    iconColor = MaterialTheme.colorScheme.primary,
-                    borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                    subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                InfoCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Filled.Schedule,
-                    title = "SOLDE RTT",
-                    value = "$rttRemaining j",
-                    subtitle = "RTT acquis restants",
-                    bgColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
-                    iconColor = MaterialTheme.colorScheme.secondary,
-                    borderColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
-                    subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                        LeaveRequestForm(
+                            currentUser = currentUser,
+                            modifier = Modifier.fillMaxWidth(),
+                            onSubmittedSuccess = {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Votre demande a été soumise avec succès !")
+                                }
+                            },
+                            onUserUpdate = { authViewModel?.updateUserProfile(it) }
+                        )
+                    }
+
+                    // Right Column: Summary & HR Guidelines
+                    Column(
+                        modifier = Modifier.weight(0.85f),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Soldes Card
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                            shape = RoundedCornerShape(16.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Text(
+                                    text = "Vos Soldes Disponibles",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                // CP
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Filled.BeachAccess, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                            Text("Congés Payés", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                        }
+                                        Text("$cpRemaining j restants", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { if ((currentUser?.paidLeaveAllowance ?: 25) > 0) cpRemaining.toFloat() / (currentUser?.paidLeaveAllowance ?: 25) else 0f },
+                                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                                    )
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                                // RTT
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
+                                            Text("RTT / Récupération", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                        }
+                                        Text("$rttRemaining j restants", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { if ((currentUser?.rttAllowance ?: 10) > 0) rttRemaining.toFloat() / (currentUser?.rttAllowance ?: 10) else 0f },
+                                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
+                        }
+
+                        // Directives & Délais RH Card
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(16.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    Text("Rappels RH & Délais", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                }
+
+                                Text("• Délai de prévenance : Merci de déposer vos congés payés au moins 48 heures à l'avance.", style = MaterialTheme.typography.bodySmall)
+                                Text("• Arrêt maladie : Le justificatif médical doit être obligatoirement transmis dans les 48h.", style = MaterialTheme.typography.bodySmall)
+                                Text("• Décompte automatique : Les week-ends et jours fériés sont exclus automatiquement.", style = MaterialTheme.typography.bodySmall)
+                                Text("• Notification : Votre manager et le service RH recevront un avis instantané dès la soumission.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Mobile layout
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 760.dp)
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Nouvelle Demande",
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Sélectionnez le type de congé et les dates souhaitées pour soumettre votre absence.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    LeaveRequestForm(
+                        currentUser = currentUser,
+                        modifier = Modifier.fillMaxWidth(),
+                        onSubmittedSuccess = {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Votre demande a été soumise avec succès !")
+                            }
+                        },
+                        onUserUpdate = { authViewModel?.updateUserProfile(it) }
+                    )
+                }
             }
         }
     }
@@ -311,55 +446,4 @@ fun CustomTextField(
     }
 }
 
-@Composable
-fun InfoCard(
-    modifier: Modifier = Modifier,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    value: String,
-    subtitle: String,
-    bgColor: Color,
-    iconColor: Color,
-    borderColor: Color,
-    subtitleColor: Color
-) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = bgColor),
-        shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = iconColor
-                )
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = iconColor
-                )
-            }
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = subtitleColor
-            )
-        }
-    }
-}
 

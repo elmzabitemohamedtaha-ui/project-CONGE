@@ -1,0 +1,14 @@
+<<<<
+    var editFullName by remember(currentUser) { mutableStateOf(fullName) }
+    var editJobTitle by remember(currentUser) { mutableStateOf(jobTitle) }
+    var editDepartment by remember(currentUser) { mutableStateOf(department) }
+    var editPhone by remember(currentUser) { mutableStateOf(phone) }
+    var editOffice by remember(currentUser) { mutableStateOf(officeLocation) }
+====
+    var editFullName by remember(currentUser) { mutableStateOf(fullName) }
+    var editJobTitle by remember(currentUser) { mutableStateOf(jobTitle) }
+    var editDepartment by remember(currentUser) { mutableStateOf(department) }
+    var editPhone by remember(currentUser) { mutableStateOf(phone) }
+    var editOffice by remember(currentUser) { mutableStateOf(officeLocation) }
+    var editEmail by remember(currentUser) { mutableStateOf(email) }
+>>>>

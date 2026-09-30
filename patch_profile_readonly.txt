@@ -1,0 +1,43 @@
+<<<<
+                    OutlinedTextField(
+                        value = editJobTitle,
+                        onValueChange = { editJobTitle = it },
+                        label = { Text("Poste / Fonction") },
+                        leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    OutlinedTextField(
+                        value = editDepartment,
+                        onValueChange = { editDepartment = it },
+                        label = { Text("Département") },
+                        leadingIcon = { Icon(Icons.Filled.Apartment, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+====
+                    OutlinedTextField(
+                        value = editJobTitle,
+                        onValueChange = { editJobTitle = it },
+                        label = { Text("Poste / Fonction (Non modifiable)") },
+                        leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = false,
+                        readOnly = true
+                    )
+                    OutlinedTextField(
+                        value = editDepartment,
+                        onValueChange = { editDepartment = it },
+                        label = { Text("Département (Non modifiable)") },
+                        leadingIcon = { Icon(Icons.Filled.Apartment, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = false,
+                        readOnly = true
+                    )
+>>>>

@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -272,12 +274,17 @@ fun NotificationCenterSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Filter chips
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Filter chips (scrollable if screen width is constrained)
+                Row(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     FilterChip(
                         selected = selectedFilter == "ALL",
                         onClick = { selectedFilter = "ALL" },
@@ -321,7 +328,8 @@ fun NotificationCenterSheet(
                             coroutineScope.launch {
                                 leaveRepository.markAllAlertsRead(userEmail)
                             }
-                        }
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.DoneAll,
@@ -336,7 +344,7 @@ fun NotificationCenterSheet(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
-            // Test simulation triggers
+            // Test simulation triggers card (responsively stacked so buttons never squish)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -346,44 +354,74 @@ fun NotificationCenterSheet(
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column {
-                        Text(
-                            text = "Simuler une alerte système",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Déclenche la notification locale Android",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Simuler une alerte système",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Déclenche la notification locale Android",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(
                             onClick = {
                                 coroutineScope.launch {
                                     leaveRepository.triggerTestLeaveNotification(userEmail, isApproved = true)
                                 }
                             },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.CheckCircle,
                                 contentDescription = null,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(16.dp),
                                 tint = Color.White
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Validation", fontSize = 11.sp, color = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Validation",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
                         }
 
                         Button(
@@ -392,18 +430,25 @@ fun NotificationCenterSheet(
                                     leaveRepository.triggerTestLeaveNotification(userEmail, isApproved = false)
                                 }
                             },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Warning,
                                 contentDescription = null,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(16.dp),
                                 tint = Color.White
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Refus", fontSize = 11.sp, color = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Refus",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
                         }
                     }
                 }

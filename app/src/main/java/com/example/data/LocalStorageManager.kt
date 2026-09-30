@@ -32,6 +32,38 @@ class LocalStorageManager(context: Context) {
         // Key for all registered users in local storage
         private const val KEY_REGISTERED_USERS_JSON = "all_registered_users_json"
         private const val KEY_LAST_USED_EMAIL = "last_used_email"
+        private const val KEY_BIOMETRIC_ENABLED = "biometric_auth_enabled"
+
+        @Volatile
+        private var INSTANCE: LocalStorageManager? = null
+
+        fun getInstance(context: Context): LocalStorageManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: LocalStorageManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+    }
+
+    /**
+     * Active ou désactive l'authentification biométrique.
+     */
+    fun setBiometricEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
+    }
+
+    /**
+     * Annule / désactive l'authentification biométrique.
+     */
+    fun disableBiometric() {
+        setBiometricEnabled(false)
+    }
+
+    /**
+     * Vérifie si l'authentification biométrique est activée dans les préférences.
+     * Désactivé par défaut (false) afin de ne pas forcer la biométrie.
+     */
+    fun isBiometricEnabled(): Boolean {
+        return prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
     }
 
     /**
@@ -126,6 +158,25 @@ class LocalStorageManager(context: Context) {
             rttAllowance = rttAllowance,
             rttUsed = rttUsed
         )
+    }
+
+    /**
+     * Supprime des utilisateurs par email de la liste enregistrée dans le Local Storage.
+     */
+    fun removeUsersByEmail(emailsToRemove: Set<String>) {
+        val existingUsers = getAllRegisteredUsers().toMutableList()
+        val filtered = existingUsers.filterNot { u -> emailsToRemove.any { it.equals(u.email.trim(), ignoreCase = true) } }
+        val jsonArray = JSONArray()
+        for (u in filtered) {
+            jsonArray.put(userToJson(u))
+        }
+        val editor = prefs.edit()
+        editor.putString(KEY_REGISTERED_USERS_JSON, jsonArray.toString())
+        val currentEmail = prefs.getString(KEY_CURRENT_USER_EMAIL, null)
+        if (currentEmail != null && emailsToRemove.any { it.equals(currentEmail.trim(), ignoreCase = true) }) {
+            clearActiveSession()
+        }
+        editor.apply()
     }
 
     /**

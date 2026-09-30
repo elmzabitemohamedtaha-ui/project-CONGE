@@ -316,6 +316,16 @@ class FirestoreSyncManager private constructor(private val context: Context) {
                     }
                 }
 
+                ACTION_DELETE_LEAVE_REQUEST -> {
+                    val requestId = payload.getString("requestId")
+                    val existing = leaveRequestDao.getRequestById(requestId)
+                    if (existing != null) {
+                        leaveRequestDao.deleteRequest(existing)
+                        _lastSyncTimestamp.value = System.currentTimeMillis()
+                        Log.d("FirestoreSyncManager", "Real-time synced LeaveRequest DELETE $requestId")
+                    }
+                }
+
                 ACTION_STATUS_UPDATE -> {
                     val requestId = payload.getString("requestId")
                     val status = payload.getString("status")
@@ -464,6 +474,28 @@ class FirestoreSyncManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun deleteLeaveRequest(request: LeaveRequestEntity) {
+        // 1. Broadcast via Universal Real-time Cloud Relay
+        try {
+            val payload = JSONObject().apply {
+                put("action", ACTION_DELETE_LEAVE_REQUEST)
+                put("requestId", request.id)
+            }
+            publishToCloudRelay(payload)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "Relay upload error: ${e.message}")
+        }
+
+        // 2. Also delete from Cloud Firestore if initialized
+        val fs = firestore ?: return
+        try {
+            fs.collection(COLLECTION_REQUESTS).document(request.id).delete().await()
+            Log.d("FirestoreSyncManager", "Leave request ${request.id} deleted from Firestore")
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "Firestore delete notice: ${e.message}")
+        }
+    }
+
     /**
      * Update leave request status (APPROVED / REJECTED) across all devices.
      */
@@ -498,11 +530,17 @@ class FirestoreSyncManager private constructor(private val context: Context) {
         // 2. Also save to Cloud Firestore if initialized
         val fs = firestore ?: return
         try {
-            val updates = mapOf(
+            val updates = mutableMapOf<String, Any>(
                 "status" to status,
                 "decisionAt" to decisionAt,
-                "adminComment" to (adminComment ?: "")
+                "adminComment" to (adminComment ?: ""),
+                "approvedBy" to "Mohamed Taha El Mzabite"
             )
+            if (targetUserEmail.isNotBlank()) updates["employeeEmail"] = targetUserEmail
+            if (employeeName.isNotBlank()) updates["employeeName"] = employeeName
+            if (leaveType.isNotBlank()) updates["leaveType"] = leaveType
+            if (dates.isNotBlank()) updates["dates"] = dates
+
             fs.collection(COLLECTION_REQUESTS).document(requestId)
                 .set(updates, SetOptions.merge())
                 .await()
@@ -691,6 +729,7 @@ class FirestoreSyncManager private constructor(private val context: Context) {
             employeeName = obj.optString("employeeName", "Collaborateur"),
             department = obj.optString("department", "Ingénierie & IT"),
             leaveType = obj.optString("leaveType", "Congés payés"),
+            category = obj.optString("category", "Inconnu"),
             startDate = obj.optString("startDate", ""),
             endDate = obj.optString("endDate", ""),
             startDay = obj.optInt("startDay", 1),
@@ -799,6 +838,7 @@ class FirestoreSyncManager private constructor(private val context: Context) {
             employeeName = employeeName,
             department = department,
             leaveType = leaveType,
+            category = data["category"] as? String ?: "Inconnu",
             startDate = startDate,
             endDate = endDate,
             startDay = startDay,
@@ -858,6 +898,7 @@ class FirestoreSyncManager private constructor(private val context: Context) {
         const val DEFAULT_SYNC_CHANNEL = "timeoff_company_global_sync_vzxqwe"
 
         const val ACTION_LEAVE_REQUEST = "ACTION_LEAVE_REQUEST"
+        const val ACTION_DELETE_LEAVE_REQUEST = "ACTION_DELETE_LEAVE_REQUEST"
         const val ACTION_STATUS_UPDATE = "ACTION_STATUS_UPDATE"
         const val ACTION_USER_UPSERT = "ACTION_USER_UPSERT"
         const val ACTION_SYNC_REQUEST = "ACTION_SYNC_REQUEST"

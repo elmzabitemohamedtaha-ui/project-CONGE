@@ -29,6 +29,10 @@ object LocalNotificationHelper {
     const val CHANNEL_NAME_NEW_REQUESTS = "Nouvelles Demandes de Congés (Admin)"
     const val CHANNEL_DESC_NEW_REQUESTS = "Alertes instantanées reçues par le manager lorsqu'un employé soumet une demande depuis un autre téléphone."
 
+    const val CHANNEL_ID_REMINDERS = "timeoff_leave_reminders_channel"
+    const val CHANNEL_NAME_REMINDERS = "Rappels de Congés"
+    const val CHANNEL_DESC_REMINDERS = "Rappels pour les dates de congés à venir."
+
     const val EXTRA_NOTIFICATION_CLICKED = "EXTRA_NOTIFICATION_CLICKED"
     const val EXTRA_REQUEST_ID = "EXTRA_REQUEST_ID"
     const val EXTRA_STATUS = "EXTRA_STATUS"
@@ -68,9 +72,24 @@ object LocalNotificationHelper {
                 setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
+            
+            val channelReminders = NotificationChannel(
+                CHANNEL_ID_REMINDERS,
+                CHANNEL_NAME_REMINDERS,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = CHANNEL_DESC_REMINDERS
+                enableLights(true)
+                lightColor = Color.YELLOW
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 200, 400)
+                setShowBadge(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            }
 
             notificationManager.createNotificationChannel(channelStatus)
             notificationManager.createNotificationChannel(channelNewRequests)
+            notificationManager.createNotificationChannel(channelReminders)
         }
     }
 
@@ -280,5 +299,164 @@ object LocalNotificationHelper {
             isApproved = isApproved,
             adminComment = if (isApproved) "Test de notification locale réussi !" else "Test de refus pour vérification des alertes."
         )
+    }
+
+    /**
+     * Sends a reminder notification for an upcoming leave.
+     */
+    fun sendLeaveReminderNotification(
+        context: Context,
+        requestId: String,
+        employeeName: String,
+        leaveType: String,
+        dates: String
+    ) {
+        createNotificationChannels(context)
+
+        val title = "⏰ Rappel de congé à venir"
+        val shortMessage = "Votre $leaveType approche ($dates)."
+        val expandedMessage = buildString {
+            append("Bonjour $employeeName,\n\n")
+            append("Ceci est un rappel pour votre congé à venir.\n")
+            append("• Type : $leaveType\n")
+            append("• Période : $dates\n\n")
+            append("Profitez bien de votre repos !")
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_NOTIFICATION_CLICKED, true)
+            putExtra(EXTRA_REQUEST_ID, requestId)
+        }
+
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(context, requestId.hashCode() + 2000, intent, flags)
+        val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
+            .setSmallIcon(R.drawable.ic_notification_leave)
+            .setContentTitle(title)
+            .setContentText(shortMessage)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(expandedMessage)
+                    .setBigContentTitle(title)
+                    .setSummaryText("Rappel")
+            )
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setColor(0xF59E0B.toInt())
+            .setColorized(true)
+            .setSound(defaultSoundUri)
+            .setVibrate(longArrayOf(0, 300, 150, 300))
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        val notificationManager = NotificationManagerCompat.from(context)
+        try {
+            if (hasNotificationPermission(context)) {
+                notificationManager.notify(requestId.hashCode() + 2000, builder.build())
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Schedules a local push notification reminder using AlarmManager.
+     */
+    fun scheduleLeaveReminder(
+        context: Context,
+        requestId: String,
+        employeeName: String,
+        leaveType: String,
+        dates: String,
+        triggerAtMillis: Long
+    ) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val intent = Intent(context, LeaveReminderReceiver::class.java).apply {
+            putExtra("requestId", requestId)
+            putExtra("employeeName", employeeName)
+            putExtra("leaveType", leaveType)
+            putExtra("dates", dates)
+        }
+        
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestId.hashCode() + 3000,
+            intent,
+            flags
+        )
+        
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                } else {
+                    alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            } else {
+                alarmManager.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            }
+        } catch (e: SecurityException) {
+            // Fallback for Android 14+ if exact alarm permission is missing
+            alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+        }
+    }
+
+    /**
+     * Sends an instant security notification with the password reset verification code.
+     */
+    fun sendPasswordResetSecurityNotification(
+        context: Context,
+        email: String,
+        securityCode: String
+    ) {
+        createNotificationChannels(context)
+
+        val title = "🔐 Code de sécurité réinitialisation"
+        val message = "Votre code pour $email est : $securityCode (Valable 15 min)."
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            9991,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_LEAVE_STATUS)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("Votre code de sécurité pour l'adresse $email est : $securityCode\nValable pendant 15 minutes pour renouveler votre mot de passe.")
+            )
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        val notificationManager = NotificationManagerCompat.from(context)
+        try {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                notificationManager.notify(9991, builder.build())
+            }
+        } catch (_: Exception) {}
     }
 }

@@ -1,0 +1,81 @@
+
+@Composable
+fun MonthlyLeaveRequestsChart(requests: List<LeaveRequestEntity>) {
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val monthNames = listOf("Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc")
+    
+    // Calculate counts per month for the current year
+    val counts = remember(requests) {
+        val yearRequests = requests.filter { it.year == currentYear }
+        val monthCounts = IntArray(12) { 0 }
+        yearRequests.forEach { req ->
+            if (req.month in 0..11) {
+                monthCounts[req.month]++
+            }
+        }
+        monthCounts.toList()
+    }
+    
+    val maxCount = counts.maxOrNull()?.coerceAtLeast(1) ?: 1
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Demandes de congés par mois ($currentYear)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                counts.forEachIndexed { index, count ->
+                    val heightFraction = count.toFloat() / maxCount.toFloat()
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (count > 0) {
+                            Text(
+                                text = count.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.6f)
+                                .fillMaxHeight(heightFraction.coerceAtLeast(0.01f))
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(
+                                    if (count > 0) MaterialTheme.colorScheme.primary 
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = monthNames[index],
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,53 @@
+<<<<
+                    OutlinedTextField(
+                        value = editDepartment,
+                        onValueChange = { editDepartment = it },
+                        label = { Text("Département") },
+                        leadingIcon = { Icon(Icons.Filled.Apartment, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    OutlinedTextField(
+                        value = editPhone,
+                        onValueChange = { editPhone = it },
+                        label = { Text("Numéro de téléphone") },
+                        leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+====
+                    OutlinedTextField(
+                        value = editDepartment,
+                        onValueChange = { editDepartment = it },
+                        label = { Text("Département") },
+                        leadingIcon = { Icon(Icons.Filled.Apartment, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    OutlinedTextField(
+                        value = editEmail,
+                        onValueChange = { editEmail = it },
+                        label = { Text("Email Professionnel") },
+                        leadingIcon = { Icon(Icons.Filled.Mail, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    OutlinedTextField(
+                        value = editPhone,
+                        onValueChange = { newValue -> 
+                            if (newValue.all { it.isDigit() }) {
+                                editPhone = newValue
+                            }
+                        },
+                        label = { Text("Numéro de téléphone") },
+                        leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+>>>>

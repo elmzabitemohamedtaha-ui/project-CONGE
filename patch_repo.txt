@@ -1,0 +1,67 @@
+<<<<
+    suspend fun submitLeaveRequest(
+        user: User,
+        leaveType: String,
+        category: String = "Inconnu",
+        startDateStr: String,
+        endDateStr: String,
+        reason: String,
+        attachmentName: String? = null
+    ): LeaveRequestEntity {
+        val (startDay, endDay, month, year, count) = parseDateDetails(startDateStr, endDateStr)
+        val requestId = UUID.randomUUID().toString()
+
+        val request = LeaveRequestEntity(
+            id = requestId,
+            employeeEmail = user.email,
+            employeeName = user.fullName,
+            department = user.department,
+            leaveType = leaveType,
+            category = category,
+            startDate = startDateStr,
+            endDate = endDateStr,
+            startDay = startDay,
+            endDay = endDay,
+            month = month,
+            year = year,
+            daysCount = count,
+            reason = reason.ifBlank { "Demande de $leaveType" },
+            attachmentName = attachmentName,
+            status = "PENDING",
+            createdAt = System.currentTimeMillis()
+        )
+====
+    suspend fun submitLeaveRequest(
+        user: User,
+        leaveType: String,
+        category: String = "Inconnu",
+        startDateStr: String,
+        endDateStr: String,
+        reason: String,
+        attachmentName: String? = null,
+        attachmentUri: String? = null
+    ): LeaveRequestEntity {
+        val (startDay, endDay, month, year, count) = parseDateDetails(startDateStr, endDateStr)
+        val requestId = UUID.randomUUID().toString()
+
+        val request = LeaveRequestEntity(
+            id = requestId,
+            employeeEmail = user.email,
+            employeeName = user.fullName,
+            department = user.department,
+            leaveType = leaveType,
+            category = category,
+            startDate = startDateStr,
+            endDate = endDateStr,
+            startDay = startDay,
+            endDay = endDay,
+            month = month,
+            year = year,
+            daysCount = count,
+            reason = reason.ifBlank { "Demande de $leaveType" },
+            attachmentName = attachmentName,
+            attachmentUri = attachmentUri,
+            status = "PENDING",
+            createdAt = System.currentTimeMillis()
+        )
+>>>>

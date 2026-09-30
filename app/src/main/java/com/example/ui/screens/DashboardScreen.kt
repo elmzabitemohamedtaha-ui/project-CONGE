@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -31,7 +33,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Celebration
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EventAvailable
@@ -39,13 +40,16 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.TrendingUp
 import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -61,12 +65,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -137,6 +143,32 @@ fun DashboardScreen(
     val rttUsed = currentUser?.rttUsed ?: 5
     val rttRemaining = (rttAllowance - rttUsed).coerceAtLeast(0)
 
+    val supabaseSync = remember { com.example.data.SupabaseSyncManager.getInstance(context) }
+    var notesCount by remember { mutableIntStateOf(0) }
+    var isLoadingNotes by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUser?.email) {
+        if (currentUser != null) {
+            isLoadingNotes = true
+            try {
+                // 1. Récupérer l'utilisateur authentifié Supabase
+                val authUser = supabaseSync.getCurrentAuthUser()
+                val targetUserId = authUser?.optString("id")?.takeIf { it.isNotBlank() }
+                    ?: currentUser?.email
+                    ?: ""
+
+                // 2. Compter le nombre de notes dans la table "notes" où user_id = targetUserId
+                if (targetUserId.isNotBlank()) {
+                    notesCount = supabaseSync.getNotesCount(targetUserId)
+                }
+            } catch (_: Exception) {
+                // Keep default 0 on error
+            } finally {
+                isLoadingNotes = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -164,14 +196,16 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    com.example.ui.i18n.LanguageSelector()
                     ThemeToggleIconButton()
                     IconButton(
                         onClick = {
                             coroutineScope.launch {
                                 com.example.data.FirestoreSyncManager.getInstance(context).syncAllLocalDataToCloud()
+                                com.example.data.SupabaseSyncManager.getInstance(context).syncAll()
                                 com.example.ui.NotificationSystem.sendNotification(
-                                    title = "Synchronisation Cloud",
-                                    message = "Vos demandes de congé et profil sont synchronisés en temps réel.",
+                                    title = com.example.ui.i18n.I18nManager.getString("dash_sync_title"),
+                                    message = com.example.ui.i18n.I18nManager.getString("dash_sync"),
                                     isApproved = true
                                 )
                             }
@@ -191,14 +225,23 @@ fun DashboardScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .padding(paddingValues),
+            contentAlignment = Alignment.TopCenter
         ) {
+            // Responsive orientation check: multi-column balance display in landscape or on wide screens
+            val isWideScreen = maxWidth >= 840.dp || (maxWidth > maxHeight && maxWidth >= 580.dp)
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 1400.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(if (isWideScreen) 24.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
             // Welcome Section with dynamic user name
             Column {
                 Text(
@@ -266,208 +309,386 @@ fun DashboardScreen(
                     )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    BalanceCard(
-                        modifier = Modifier.weight(1f),
-                        icon = Icons.Filled.BeachAccess,
-                        iconBgColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
-                        iconColor = MaterialTheme.colorScheme.primary,
-                        title = "Congés Payés",
-                        days = "$cpRemaining",
-                        totalAllowance = "sur ${cpAllowance}j alloués"
-                    )
-                    BalanceCard(
-                        modifier = Modifier.weight(1f),
-                        icon = Icons.Filled.Schedule,
-                        iconBgColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
-                        iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        title = "RTT",
-                        days = "$rttRemaining",
-                        totalAllowance = "sur ${rttAllowance}j alloués"
-                    )
-                }
-            }
+                CurrentMonthUsageCard(userEmail = currentUser?.email, context = context)
 
-            // CALENDAR VISUALIZATION SECTION (UPCOMING APPROVED LEAVES)
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                if (isWideScreen) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.CalendarMonth,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
+                        BalanceCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.BeachAccess,
+                            iconBgColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                            iconColor = MaterialTheme.colorScheme.primary,
+                            title = com.example.ui.i18n.tr("type_cp"),
+                            days = "$cpRemaining",
+                            totalAllowance = "sur ${cpAllowance}j alloués",
+                            progress = if (cpAllowance > 0) cpRemaining.toFloat() / cpAllowance else 0f
                         )
-                        Text(
-                            text = "Planning de mes congés approuvés",
-                            style = MaterialTheme.typography.headlineSmall
+                        BalanceCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.MedicalServices,
+                            iconBgColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+                            iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            title = "Arrêts Maladie",
+                            days = "$rttRemaining",
+                            totalAllowance = "sur ${rttAllowance}j alloués",
+                            progress = if (rttAllowance > 0) rttRemaining.toFloat() / rttAllowance else 0f
+                        )
+                        BalanceCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.EventNote,
+                            iconBgColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f),
+                            iconColor = MaterialTheme.colorScheme.tertiary,
+                            title = "Mes Notes (Supabase)",
+                            days = if (isLoadingNotes) "..." else "$notesCount",
+                            totalAllowance = "synchronisées pour cet utilisateur",
+                            progress = 1f
                         )
                     }
-                }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        BalanceCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.BeachAccess,
+                            iconBgColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                            iconColor = MaterialTheme.colorScheme.primary,
+                            title = com.example.ui.i18n.tr("type_cp"),
+                            days = "$cpRemaining",
+                            totalAllowance = "sur ${cpAllowance}j alloués",
+                            progress = if (cpAllowance > 0) cpRemaining.toFloat() / cpAllowance else 0f
+                        )
+                        BalanceCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.MedicalServices,
+                            iconBgColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+                            iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            title = "Arrêts Maladie",
+                            days = "$rttRemaining",
+                            totalAllowance = "sur ${rttAllowance}j alloués",
+                            progress = if (rttAllowance > 0) rttRemaining.toFloat() / rttAllowance else 0f
+                        )
+                    }
 
-                EmployeeLeaveCalendarCard(currentUserEmail = currentUser?.email)
+                    // Carte du nombre réel de notes depuis Supabase
+                    BalanceCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Filled.EventNote,
+                        iconBgColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f),
+                        iconColor = MaterialTheme.colorScheme.tertiary,
+                        title = "Mes Notes (Supabase)",
+                        days = if (isLoadingNotes) "..." else "$notesCount",
+                        totalAllowance = "synchronisées pour cet utilisateur",
+                        progress = 1f
+                    )
+                }
             }
 
-            // Demandes récentes
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Demandes récentes",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                val context = LocalContext.current
-                val leaveRepository = remember { LeaveRepository.getInstance(context) }
-                val userEmail = currentUser?.email
-                val allDbRequests by if (userEmail != null) {
-                    leaveRepository.getEmployeeRequestsFlow(userEmail).collectAsState(initial = emptyList())
-                } else {
-                    leaveRepository.getAllRequestsFlow().collectAsState(initial = emptyList())
+            // MANAGER DASHBOARD SECTION (FOR LEADS / MANAGERS)
+            val isManager = currentUser?.jobTitle?.let { title ->
+                title.contains("Lead", ignoreCase = true) || 
+                title.contains("Responsable", ignoreCase = true) || 
+                title.contains("Manager", ignoreCase = true)
+            } ?: false
+
+            if (isManager && currentUser != null) {
+                val managerRepo = remember { com.example.data.LeaveRepository.getInstance(context) }
+                val allRequests by managerRepo.getAllRequestsFlow().collectAsState(initial = emptyList())
+                val directReportsPendingRequests = allRequests.filter { 
+                    it.status == "PENDING" && 
+                    it.department == currentUser!!.department && 
+                    it.employeeEmail != currentUser!!.email 
                 }
                 
-                if (allDbRequests.isEmpty()) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                val departmentRequests = allRequests.filter {
+                    it.department == currentUser!!.department
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = com.example.ui.i18n.tr("team_stats"),
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    MonthlyLeaveRequestsChart(requests = departmentRequests)
+                }
+
+                if (directReportsPendingRequests.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.DateRange,
+                                    imageVector = Icons.Filled.Notifications,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(24.dp)
                                 )
+                                Text(
+                                    text = "À valider pour votre équipe",
+                                    style = MaterialTheme.typography.headlineSmall
+                                )
                             }
-                            Text(
-                                text = "Aucune demande récente",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Vos demandes d'absences apparaîtront ici.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                            if (onNavigateToRequest != null) {
-                                FilledTonalButton(
-                                    onClick = onNavigateToRequest,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Nouvelle demande", style = MaterialTheme.typography.labelMedium)
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.errorContainer
+                            ) {
+                                Text(
+                                    text = "${directReportsPendingRequests.size}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        directReportsPendingRequests.forEach { req ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = req.employeeName,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "${req.leaveType} (${req.daysCount}j)",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                        ) {
+                                            Text(
+                                                text = "EN ATTENTE",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Filled.EventNote,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${req.startDate} au ${req.endDate}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                } else {
-                    allDbRequests.take(4).forEach { req ->
-                        val (statusText, statusColor, statusBg) = when (req.status.uppercase(Locale.getDefault())) {
-                            "APPROVED" -> Triple(
-                                "APPROUVÉ",
-                                Color(0xFF10B981), // Emerald Green
-                                Color(0xFFD1FAE5) // Light Emerald background
+                }
+            }
+
+            // CALENDAR & RECENT REQUESTS SECTIONS (Adaptive 2-column on desktop, single column on mobile)
+            val calendarSection = @Composable {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.CalendarMonth,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
                             )
-                            "REJECTED" -> Triple(
-                                "REFUSÉ",
-                                Color(0xFFEF4444), // Red
-                                Color(0xFFFEE2E2) // Light Red background
-                            )
-                            else -> Triple(
-                                "EN ATTENTE",
-                                Color(0xFFF59E0B), // Amber
-                                Color(0xFFFEF3C7) // Light Amber background
+                            Text(
+                                text = "Planning de mes congés approuvés",
+                                style = MaterialTheme.typography.headlineSmall
                             )
                         }
+                    }
 
-                        val icon = when {
-                            req.leaveType.contains("Payé", ignoreCase = true) -> Icons.Filled.BeachAccess
-                            req.leaveType.contains("RTT", ignoreCase = true) -> Icons.Filled.Schedule
-                            req.leaveType.contains("Télétravail", ignoreCase = true) -> Icons.Filled.HomeWork
-                            else -> Icons.Filled.EventBusy
-                        }
+                    EmployeeLeaveCalendarCard(currentUserEmail = currentUser?.email)
+                }
+            }
 
-                        val formattedDate = if (req.startDate == req.endDate) req.startDate else "${req.startDate} - ${req.endDate}"
-
-                        RequestCard(
-                            icon = icon,
-                            date = formattedDate,
-                            type = "${req.leaveType} (${req.daysCount}j)",
-                            status = statusText,
-                            statusColor = statusColor,
-                            statusBg = statusBg
+            val recentRequestsSection = @Composable {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Demandes récentes",
+                            style = MaterialTheme.typography.headlineSmall
                         )
+                        if (onNavigateToRequest != null) {
+                            TextButton(onClick = onNavigateToRequest) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Nouvelle", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    val context = LocalContext.current
+                    val leaveRepository = remember { LeaveRepository.getInstance(context) }
+                    val userEmail = currentUser?.email ?: com.example.data.LocalStorageManager(context).getCurrentUser()?.email
+                    val allDbRequests by remember(userEmail) {
+                        if (!userEmail.isNullOrBlank()) {
+                            leaveRepository.getEmployeeRequestsFlow(userEmail)
+                        } else {
+                            kotlinx.coroutines.flow.flowOf(emptyList<com.example.data.LeaveRequestEntity>())
+                        }
+                    }.collectAsState(initial = emptyList())
+                    
+                    if (allDbRequests.isEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.DateRange,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Aucune demande récente",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Vos demandes d'absences apparaîtront ici.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                                if (onNavigateToRequest != null) {
+                                    FilledTonalButton(
+                                        onClick = onNavigateToRequest,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Nouvelle demande", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        allDbRequests.take(4).forEach { req ->
+                            val (statusText, statusColor, statusBg) = when (req.status.uppercase(Locale.getDefault())) {
+                                "APPROVED" -> Triple(
+                                    "APPROUVÉ",
+                                    Color(0xFF10B981), // Emerald Green
+                                    Color(0xFFD1FAE5) // Light Emerald background
+                                )
+                                "REJECTED" -> Triple(
+                                    "REFUSÉ",
+                                    Color(0xFFEF4444), // Red
+                                    Color(0xFFFEE2E2) // Light Red background
+                                )
+                                else -> Triple(
+                                    "EN ATTENTE",
+                                    Color(0xFFF59E0B), // Amber
+                                    Color(0xFFFEF3C7) // Light Amber background
+                                )
+                            }
+
+                            val icon = when {
+                                req.leaveType.contains("Payé", ignoreCase = true) -> Icons.Filled.BeachAccess
+                                req.leaveType.contains(com.example.ui.i18n.I18nManager.getString("type_rtt"), ignoreCase = true) -> Icons.Filled.Schedule
+                                req.leaveType.contains(com.example.ui.i18n.I18nManager.getString("type_remote"), ignoreCase = true) -> Icons.Filled.HomeWork
+                                else -> Icons.Filled.EventBusy
+                            }
+
+                            val formattedDate = if (req.startDate == req.endDate) req.startDate else "${req.startDate} - ${req.endDate}"
+
+                            RequestCard(
+                                icon = icon,
+                                date = formattedDate,
+                                type = "${req.leaveType} (${req.daysCount}j)",
+                                status = statusText,
+                                statusColor = statusColor,
+                                statusBg = statusBg
+                            )
+                        }
                     }
                 }
             }
 
-            // Prochains jours fériés
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Prochains jours fériés",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxWidth()
+            if (isWideScreen) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    item {
-                        HolidayCard(
-                            isPrimary = true,
-                            day = "MARDI",
-                            name = "Toussaint",
-                            date = "1 Novembre 2023"
-                        )
+                    Box(modifier = Modifier.weight(1.15f)) {
+                        calendarSection()
                     }
-                    item {
-                        HolidayCard(
-                            isPrimary = false,
-                            day = "VENDREDI",
-                            name = "Armistice",
-                            date = "11 Novembre 2023"
-                        )
-                    }
-                    item {
-                        HolidayCard(
-                            isPrimary = false,
-                            day = "LUNDI",
-                            name = "Noël",
-                            date = "25 Décembre 2023"
-                        )
+                    Box(modifier = Modifier.weight(0.85f)) {
+                        recentRequestsSection()
                     }
                 }
+            } else {
+                calendarSection()
+                recentRequestsSection()
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            }
         }
     }
 }
@@ -692,7 +913,7 @@ fun LeaveAllowanceProgressBarCard(
 
                 // Congés Payés Bar
                 LeaveCategoryProgressRow(
-                    title = "Congés Payés",
+                    title = com.example.ui.i18n.tr("type_cp"),
                     usedDays = usedPaidLeaveDays,
                     totalAllowance = annualPaidLeaveAllowance,
                     progress = animatedCpProgress,
@@ -702,7 +923,7 @@ fun LeaveAllowanceProgressBarCard(
 
                 // RTT Bar
                 LeaveCategoryProgressRow(
-                    title = "RTT",
+                    title = com.example.ui.i18n.tr("type_rtt"),
                     usedDays = usedRttDays,
                     totalAllowance = annualRttAllowance,
                     progress = animatedRttProgress,
@@ -825,28 +1046,38 @@ fun LeaveCategoryProgressRow(
 fun EmployeeLeaveCalendarCard(currentUserEmail: String? = null) {
     val context = LocalContext.current
     val leaveRepository = remember { LeaveRepository.getInstance(context) }
-    val dbRequests by if (currentUserEmail != null) {
-        leaveRepository.getEmployeeRequestsFlow(currentUserEmail).collectAsState(initial = emptyList())
-    } else {
-        leaveRepository.getAllRequestsFlow().collectAsState(initial = emptyList())
+    val effectiveEmail = remember(currentUserEmail) {
+        currentUserEmail?.takeIf { it.isNotBlank() }
+            ?: com.example.data.LocalStorageManager(context).getCurrentUser()?.email
     }
+
+    val dbRequests by remember(effectiveEmail) {
+        if (!effectiveEmail.isNullOrBlank()) {
+            leaveRepository.getEmployeeRequestsFlow(effectiveEmail)
+        } else {
+            kotlinx.coroutines.flow.flowOf(emptyList<com.example.data.LeaveRequestEntity>())
+        }
+    }.collectAsState(initial = emptyList())
 
     val nowCal = remember { Calendar.getInstance() }
     val currentRealMonth = remember { nowCal.get(Calendar.MONTH) }
     val currentRealYear = remember { nowCal.get(Calendar.YEAR) }
     val currentRealDay = remember { nowCal.get(Calendar.DAY_OF_MONTH) }
 
-    var displayedMonth by remember { mutableIntStateOf(currentRealMonth) }
-    var displayedYear by remember { mutableIntStateOf(currentRealYear) }
-    var selectedDay by remember { mutableStateOf<Int?>(currentRealDay) }
+    var displayedMonth by rememberSaveable { mutableIntStateOf(currentRealMonth) }
+    var displayedYear by rememberSaveable { mutableIntStateOf(currentRealYear) }
+    var selectedDay by rememberSaveable { mutableStateOf<Int?>(currentRealDay) }
 
-    val approvedLeaves = remember(dbRequests, currentUserEmail) {
-        val userApproved = dbRequests.filter { it.status.uppercase() == "APPROVED" }
-        val mapped = userApproved.map { req ->
+    val approvedLeaves = remember(dbRequests, effectiveEmail) {
+        val userApproved = dbRequests.filter { req ->
+            req.status.equals("APPROVED", ignoreCase = true) &&
+            (effectiveEmail.isNullOrBlank() || req.employeeEmail.trim().equals(effectiveEmail.trim(), ignoreCase = true))
+        }
+        userApproved.map { req ->
             val cat = when {
                 req.leaveType.contains("Payé", ignoreCase = true) -> LeaveCategory.CONGES_PAYES
-                req.leaveType.contains("RTT", ignoreCase = true) -> LeaveCategory.RTT
-                req.leaveType.contains("Télétravail", ignoreCase = true) -> LeaveCategory.TELETTRAVAIL
+                req.leaveType.contains(com.example.ui.i18n.I18nManager.getString("type_rtt"), ignoreCase = true) -> LeaveCategory.RTT
+                req.leaveType.contains(com.example.ui.i18n.I18nManager.getString("type_remote"), ignoreCase = true) -> LeaveCategory.TELETTRAVAIL
                 else -> LeaveCategory.EXCEPTIONNEL
             }
 
@@ -873,28 +1104,6 @@ fun EmployeeLeaveCalendarCard(currentUserEmail: String? = null) {
                 details = detailsText
             )
         }
-
-        if (mapped.isNotEmpty()) {
-            mapped
-        } else {
-            // Default enterprise calendar period if no records yet
-            listOf(
-                DashboardApprovedLeave(
-                    id = "sample_1",
-                    title = "Congés d'équipe",
-                    type = "Congés Payés",
-                    startDay = 24,
-                    endDay = 26,
-                    month = currentRealMonth,
-                    year = currentRealYear,
-                    durationDays = 3,
-                    datesFormatted = "24 - 26 ${SimpleDateFormat("MMMM yyyy", Locale.FRENCH).format(nowCal.time)}",
-                    category = LeaveCategory.CONGES_PAYES,
-                    countdownText = "Validé RH",
-                    details = "3 jours validés par la direction"
-                )
-            )
-        }
     }
 
     val cal = remember(displayedMonth, displayedYear) {
@@ -914,14 +1123,13 @@ fun EmployeeLeaveCalendarCard(currentUserEmail: String? = null) {
     val rawFirstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
     val firstDayOffset = (rawFirstDayOfWeek + 5) % 7 // 0 for Monday
 
-    val currentMonthLeaves = remember(displayedMonth, displayedYear) {
+    val currentMonthLeaves = remember(displayedMonth, displayedYear, approvedLeaves) {
         approvedLeaves.filter { it.month == displayedMonth && it.year == displayedYear }
     }
 
-    val activeLeave = remember(selectedDay, displayedMonth, displayedYear) {
+    val activeLeave = remember(selectedDay, currentMonthLeaves) {
         if (selectedDay == null) null
         else currentMonthLeaves.find { selectedDay!! in it.startDay..it.endDay }
-            ?: currentMonthLeaves.firstOrNull()
     }
 
     Card(
@@ -1139,17 +1347,17 @@ fun EmployeeLeaveCalendarCard(currentUserEmail: String? = null) {
                 LegendItem(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     dotColor = MaterialTheme.colorScheme.primary,
-                    label = "Congés Payés"
+                    label = com.example.ui.i18n.tr("type_cp")
                 )
                 LegendItem(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     dotColor = MaterialTheme.colorScheme.secondary,
-                    label = "RTT"
+                    label = com.example.ui.i18n.tr("type_rtt")
                 )
                 LegendItem(
                     color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
                     dotColor = MaterialTheme.colorScheme.tertiary,
-                    label = "Télétravail"
+                    label = com.example.ui.i18n.tr("type_remote")
                 )
             }
 
@@ -1189,24 +1397,50 @@ fun EmployeeLeaveCalendarCard(currentUserEmail: String? = null) {
             // Quick list of all upcoming approved leaves
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Tous mes prochains congés validés",
+                text = "Mes prochains congés validés",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                approvedLeaves.forEach { leave ->
-                    UpcomingLeaveMiniRow(
-                        leave = leave,
-                        isSelected = displayedMonth == leave.month && displayedYear == leave.year && selectedDay in leave.startDay..leave.endDay,
-                        onClick = {
-                            displayedMonth = leave.month
-                            displayedYear = leave.year
-                            selectedDay = leave.startDay
-                        }
-                    )
+            if (approvedLeaves.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    approvedLeaves.forEach { leave ->
+                        UpcomingLeaveMiniRow(
+                            leave = leave,
+                            isSelected = displayedMonth == leave.month && displayedYear == leave.year && selectedDay in leave.startDay..leave.endDay,
+                            onClick = {
+                                displayedMonth = leave.month
+                                displayedYear = leave.year
+                                selectedDay = leave.startDay
+                            }
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.EventAvailable,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Aucun congé approuvé pour le moment. Vos congés personnels validés s'afficheront ici.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -1434,7 +1668,8 @@ fun BalanceCard(
     iconColor: Color,
     title: String,
     days: String,
-    totalAllowance: String
+    totalAllowance: String,
+    progress: Float
 ) {
     Card(
         modifier = modifier,
@@ -1488,6 +1723,16 @@ fun BalanceCard(
                     text = totalAllowance,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = iconColor,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             }
         }
@@ -1563,59 +1808,157 @@ fun RequestCard(
         }
     }
 }
-
 @Composable
-fun HolidayCard(
-    isPrimary: Boolean,
-    day: String,
-    name: String,
-    date: String
-) {
-    val bgColor = if (isPrimary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLowest
-    val textColor = if (isPrimary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    val subtextColor = if (isPrimary) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline
-    val iconColor = if (isPrimary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+fun MonthlyLeaveRequestsChart(requests: List<LeaveRequestEntity>) {
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val monthNames = listOf("Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc")
+    
+    // Calculate counts per month for the current year
+    val counts = remember(requests) {
+        val yearRequests = requests.filter { it.year == currentYear }
+        val monthCounts = IntArray(12) { 0 }
+        yearRequests.forEach { req ->
+            if (req.month in 0..11) {
+                monthCounts[req.month]++
+            }
+        }
+        monthCounts.toList()
+    }
+    
+    val maxCount = counts.maxOrNull()?.coerceAtLeast(1) ?: 1
 
     Card(
-        modifier = Modifier.width(160.dp),
-        colors = CardDefaults.cardColors(containerColor = bgColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isPrimary) 4.dp else 1.dp),
-        shape = RoundedCornerShape(16.dp)
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Text(
+                text = "Demandes de congés par mois ($currentYear)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
-                Text(
-                    text = day,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = subtextColor,
-                    fontWeight = FontWeight.Bold
+                counts.forEachIndexed { index, count ->
+                    val heightFraction = count.toFloat() / maxCount.toFloat()
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (count > 0) {
+                            Text(
+                                text = count.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.6f)
+                                .fillMaxHeight(heightFraction.coerceAtLeast(0.01f))
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(
+                                    if (count > 0) MaterialTheme.colorScheme.primary 
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = monthNames[index],
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun CurrentMonthUsageCard(userEmail: String?, context: android.content.Context) {
+    if (userEmail == null) return
+    val leaveRepository = remember { LeaveRepository.getInstance(context) }
+    val requests by leaveRepository.getEmployeeRequestsFlow(userEmail).collectAsState(initial = emptyList())
+    
+    val currentMonth = remember { Calendar.getInstance().get(Calendar.MONTH) }
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val monthNames = listOf("Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre")
+    
+    val monthName = monthNames[currentMonth]
+    
+    // Count days approved this month
+    val daysThisMonth = remember(requests, currentMonth, currentYear) {
+        requests.filter { 
+            it.status.uppercase() == "APPROVED" && 
+            it.year == currentYear && 
+            it.month == currentMonth 
+        }.sumOf { it.daysCount.toDouble() }.toFloat()
+    }
+    
+    // Assuming 21 working days per month approx
+    val totalWorkingDays = 21f
+    val progress = (daysThisMonth / totalWorkingDays).coerceIn(0f, 1f)
+    
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { 1f },
+                    modifier = Modifier.size(64.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    strokeWidth = 6.dp
                 )
-                Icon(
-                    imageVector = Icons.Filled.Celebration,
-                    contentDescription = null,
-                    tint = iconColor,
-                    modifier = Modifier.size(16.dp)
+                CircularProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.size(64.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 6.dp,
+                    strokeCap = StrokeCap.Round
+                )
+                Text(
+                    text = "${if (daysThisMonth % 1.0f == 0.0f) daysThisMonth.toInt() else daysThisMonth}j",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
-
-            Column {
+            
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = name,
+                    text = "Consommation du mois",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = textColor
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = date,
+                    text = "$daysThisMonth jours de congés utilisés en $monthName.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = subtextColor
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

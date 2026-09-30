@@ -1,0 +1,25 @@
+<<<<
+                actions = {
+                    ThemeToggleIconButton()
+                    IconButton(
+====
+                actions = {
+                    com.example.ui.i18n.LanguageSelector()
+                    ThemeToggleIconButton()
+                    IconButton(
+>>>>
+<<<<
+                        text = "Tableau de bord",
+====
+                        text = com.example.ui.i18n.tr("nav_dashboard"),
+>>>>
+<<<<
+                        text = "Mes dernières demandes",
+====
+                        text = com.example.ui.i18n.tr("dashboard_recent"),
+>>>>
+<<<<
+                        text = "Statistiques de l'équipe",
+====
+                        text = com.example.ui.i18n.tr("team_stats"),
+>>>>

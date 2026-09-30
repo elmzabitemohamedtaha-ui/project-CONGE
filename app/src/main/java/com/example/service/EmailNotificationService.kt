@@ -77,7 +77,7 @@ object EmailNotificationService {
         dates: String,
         reason: String
     ): EmailNotification {
-        val managerEmail = "manager@entreprise.com"
+        val managerEmail = "elmzabitemohamedtaha@gmail.com"
         val subject = "[TimeOff - Action Requise] Nouvelle demande de $leaveType de $employeeName"
         val timestamp = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
 
@@ -96,7 +96,7 @@ object EmailNotificationService {
 
         val notification = EmailNotification(
             toEmail = managerEmail,
-            recipientName = "Manager / RH",
+            recipientName = "Direction des Ressources Humaines",
             subject = subject,
             content = content,
             sentAt = timestamp,

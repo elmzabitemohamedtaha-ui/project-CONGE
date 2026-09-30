@@ -1,0 +1,31 @@
+<<<<
+                    if (end.before(start)) {
+                        validationError = "La date de fin ne peut pas être antérieure à la date de début."
+                        return@Button
+                    }
+====
+                    if (end.before(start)) {
+                        validationError = "La date de fin ne peut pas être antérieure à la date de début."
+                        return@Button
+                    }
+                    
+                    if (startDate == endDate) {
+                        validationError = "La date de début et la date de fin ne peuvent pas être égales."
+                        return@Button
+                    }
+>>>>
+<<<<
+                    // Tomorrow 1 day
+                    SuggestionChip(
+                        onClick = {
+                            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+                            val dateStr = sdf.format(cal.time)
+                            startDate = dateStr
+                            endDate = dateStr
+                            validationError = null
+                        },
+                        label = { Text("Demain (1j)", style = MaterialTheme.typography.labelSmall) },
+                        shape = RoundedCornerShape(8.dp)
+                    )
+====
+>>>>

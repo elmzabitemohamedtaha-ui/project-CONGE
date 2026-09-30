@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -41,6 +42,8 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
@@ -61,6 +64,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -159,13 +163,21 @@ fun MonthlyReportTab(
     // Detail dialog for clicked request
     var selectedRequestDetail by remember { mutableStateOf<LeaveRequestEntity?>(null) }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+    // CSV Import dialog state
+    var showImportCsvDialog by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 1200.dp)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+        ) {
         // 1. HERO HEADER CARD & PERIOD SELECTOR
         item {
             Card(
@@ -885,6 +897,86 @@ fun MonthlyReportTab(
                             }
                         }
                     }
+
+                    // PRIMARY OPTION 3: IMPORT CSV SUPABASE (leave_balance_history)
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF0284C7).copy(alpha = 0.06f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF0284C7),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.FileUpload,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Import CSV — Historique des Soldes",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0369A1)
+                                        )
+                                        Surface(
+                                            color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Supabase",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF047857),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "Alimente la table 'leave_balance_history' (user_id, email, type, action, days_delta, balance_after, reason).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { showImportCsvDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("import_leave_history_button")
+                            ) {
+                                Icon(Icons.Filled.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Importer l’historique des congés",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1007,69 +1099,6 @@ fun MonthlyReportTab(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-
-                if (approvedRequests.isEmpty()) {
-                    // Seed button to easily generate test approved requests if empty
-                    TextButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                // Add 2 test approved leaves for this month
-                                val currentCal = Calendar.getInstance()
-                                currentCal.set(Calendar.MONTH, selectedMonth)
-                                currentCal.set(Calendar.YEAR, selectedYear)
-
-                                val sample1 = LeaveRequestEntity(
-                                    id = "sample_app_${System.currentTimeMillis()}_1",
-                                    employeeEmail = "mouad@gmail.com",
-                                    employeeName = "mouad elmzabite",
-                                    department = "Tech / IT",
-                                    leaveType = "Congés payés",
-                                    startDate = "05/${String.format("%02d", selectedMonth + 1)}/$selectedYear",
-                                    endDate = "12/${String.format("%02d", selectedMonth + 1)}/$selectedYear",
-                                    startDay = 5,
-                                    endDay = 12,
-                                    month = selectedMonth,
-                                    year = selectedYear,
-                                    daysCount = 6,
-                                    reason = "Vacances d'automne en famille",
-                                    status = "APPROVED",
-                                    createdAt = System.currentTimeMillis() - 86400000L * 5,
-                                    decisionAt = System.currentTimeMillis() - 86400000L * 4,
-                                    adminComment = "Validé sans réserve."
-                                )
-
-                                val sample2 = LeaveRequestEntity(
-                                    id = "sample_app_${System.currentTimeMillis()}_2",
-                                    employeeEmail = "khadija@gmail.com",
-                                    employeeName = "khadija el ferrouni",
-                                    department = "Ressources Humaines",
-                                    leaveType = "RTT",
-                                    startDate = "15/${String.format("%02d", selectedMonth + 1)}/$selectedYear",
-                                    endDate = "18/${String.format("%02d", selectedMonth + 1)}/$selectedYear",
-                                    startDay = 15,
-                                    endDay = 18,
-                                    month = selectedMonth,
-                                    year = selectedYear,
-                                    daysCount = 3,
-                                    reason = "Pont et récupération horaire",
-                                    status = "APPROVED",
-                                    createdAt = System.currentTimeMillis() - 86400000L * 3,
-                                    decisionAt = System.currentTimeMillis() - 86400000L * 2,
-                                    adminComment = "Accordé par la direction RH."
-                                )
-
-                                val db = com.example.data.AppDatabase.getDatabase(context)
-                                db.leaveRequestDao().insertAll(listOf(sample1, sample2))
-
-                                Toast.makeText(context, "Exemples de congés validés ajoutés !", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        Icon(imageVector = Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ajouter exemples", fontSize = 12.sp)
-                    }
-                }
             }
         }
 
@@ -1124,6 +1153,7 @@ fun MonthlyReportTab(
                 )
             }
         }
+        }
     }
 
     // Detail Dialog
@@ -1170,6 +1200,21 @@ fun MonthlyReportTab(
                 Button(onClick = { selectedRequestDetail = null }) {
                     Text("Fermer")
                 }
+            }
+        )
+    }
+
+    if (showImportCsvDialog) {
+        com.example.ui.components.LeaveBalanceHistoryImportDialog(
+            callerEmail = "elmzabitemohamedtaha@gmail.com",
+            onDismiss = { showImportCsvDialog = false },
+            onImportCompleted = { count ->
+                showImportCsvDialog = false
+                Toast.makeText(
+                    context,
+                    "$count ligne(s) importée(s) avec succès dans Supabase leave_balance_history !",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         )
     }

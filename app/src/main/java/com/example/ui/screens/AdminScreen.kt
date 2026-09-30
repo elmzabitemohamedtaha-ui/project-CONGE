@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Apartment
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
@@ -60,11 +61,18 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Switch
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -79,17 +87,28 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+
+import com.example.ui.i18n.I18nManager
+
 import androidx.compose.material3.Text
+
+
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -102,6 +121,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -147,7 +167,9 @@ data class PendingRequest(
     val endDay: Int = 14,
     val month: Int = Calendar.OCTOBER,
     val year: Int = 2026,
-    val isPending: Boolean = true
+    val isPending: Boolean = true,
+    val attachmentName: String? = null,
+    val attachmentUri: String? = null
 )
 
 data class TeamMemberSchedule(
@@ -169,8 +191,99 @@ data class LeavePeriod(
     val year: Int,
     val isPending: Boolean = false,
     val status: String = if (isPending) "PENDING" else "APPROVED", // "APPROVED", "PENDING", "REJECTED"
-    val color: Color = Color(0xFF2563EB)
-)
+    val color: Color = Color(0xFF2563EB),
+    val startMillis: Long = 0L,
+    val endMillis: Long = 0L
+) {
+    fun coversDay(day: Int, checkMonth: Int, checkYear: Int): Boolean {
+        if (month == checkMonth && year == checkYear) {
+            if (startDay <= endDay && day in startDay..endDay) return true
+        }
+        if (startMillis > 0L && endMillis >= startMillis) {
+            val cal = Calendar.getInstance().apply {
+                set(checkYear, checkMonth, day, 12, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val time = cal.timeInMillis
+            return time in startMillis..endMillis
+        }
+        return false
+    }
+}
+
+fun getLeaveTypeColor(type: String): Color {
+    val clean = type.lowercase(Locale.getDefault())
+    return when {
+        clean.contains("payé") || clean.contains("conge") || clean.contains("congé") -> Color(0xFF2563EB) // Blue
+        clean.contains("rtt") -> Color(0xFF0D9488) // Teal
+        clean.contains("télé") || clean.contains("tele") -> Color(0xFF7C3AED) // Purple
+        clean.contains("malad") -> Color(0xFFE11D48) // Rose/Red
+        clean.contains("format") -> Color(0xFF059669) // Emerald
+        else -> Color(0xFF6366F1)
+    }
+}
+
+fun parseAdminDateToMillis(dateStr: String, isEndOfDay: Boolean = false): Long {
+    val patterns = listOf("dd/MM/yyyy", "yyyy-MM-dd", "d/M/yyyy", "dd-MM-yyyy")
+    for (p in patterns) {
+        try {
+            val sdf = SimpleDateFormat(p, Locale.getDefault()).apply { isLenient = false }
+            val d = sdf.parse(dateStr.trim())
+            if (d != null) {
+                val cal = Calendar.getInstance().apply {
+                    time = d
+                    if (isEndOfDay) {
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                    } else {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                    }
+                    set(Calendar.MILLISECOND, 0)
+                }
+                return cal.timeInMillis
+            }
+        } catch (_: Exception) {}
+    }
+    return 0L
+}
+
+fun com.example.data.LeaveRequestEntity.toLeavePeriod(): LeavePeriod {
+    val sMillis = parseAdminDateToMillis(startDate, false)
+    val eMillis = parseAdminDateToMillis(endDate, true)
+
+    var sDay = startDay
+    var eDay = endDay
+    var mMonth = month
+    var yYear = year
+
+    if (sMillis > 0L) {
+        val cal = Calendar.getInstance().apply { timeInMillis = sMillis }
+        sDay = cal.get(Calendar.DAY_OF_MONTH)
+        mMonth = cal.get(Calendar.MONTH)
+        yYear = cal.get(Calendar.YEAR)
+    }
+    if (eMillis > 0L) {
+        val cal = Calendar.getInstance().apply { timeInMillis = eMillis }
+        eDay = cal.get(Calendar.DAY_OF_MONTH)
+    }
+
+    return LeavePeriod(
+        id = id,
+        type = leaveType,
+        startDay = sDay,
+        endDay = maxOf(sDay, eDay),
+        month = mMonth,
+        year = yYear,
+        isPending = status.equals("PENDING", ignoreCase = true),
+        status = status.uppercase(Locale.getDefault()),
+        color = getLeaveTypeColor(leaveType),
+        startMillis = sMillis,
+        endMillis = maxOf(sMillis, eMillis)
+    )
+}
 
 data class TeamOverlapConflict(
     val day: Int,
@@ -188,15 +301,20 @@ enum class OverlapSeverity {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdminScreen(onLogout: () -> Unit) {
+fun AdminScreen(authViewModel: com.example.ui.AuthViewModel? = null, onLogout: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val leaveRepository = remember { LeaveRepository.getInstance(context) }
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Team Calendar View, 1: Pending Requests, 2: Email Logs
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0: Team Calendar View, 1: Pending Requests, 2: Email Logs
 
     val dbRequests by leaveRepository.getAllRequestsFlow().collectAsState(initial = emptyList())
+    val currentUser by if (authViewModel != null) {
+        authViewModel.currentUser.collectAsState()
+    } else {
+        remember { kotlinx.coroutines.flow.MutableStateFlow<com.example.data.User?>(null) }.collectAsState()
+    }
 
     val pendingRequests = remember(dbRequests) {
         dbRequests.filter { it.status == "PENDING" }.map {
@@ -211,15 +329,17 @@ fun AdminScreen(onLogout: () -> Unit) {
                 endDay = it.endDay,
                 month = it.month,
                 year = it.year,
-                isPending = true
+                isPending = true,
+                attachmentName = it.attachmentName,
+                attachmentUri = it.attachmentUri
             )
         }
     }
 
     var requestToDecide by remember { mutableStateOf<PendingRequest?>(null) }
-    var isApproving by remember { mutableStateOf(true) }
-    var adminCommentInput by remember { mutableStateOf("") }
-    var showDecisionDialog by remember { mutableStateOf(false) }
+    var isApproving by rememberSaveable { mutableStateOf(true) }
+    var adminCommentInput by rememberSaveable { mutableStateOf("") }
+    var showDecisionDialog by rememberSaveable { mutableStateOf(false) }
 
     // Dynamic Team Members list from DB and defaults
     var registeredUsers by remember { mutableStateOf<List<User>>(emptyList()) }
@@ -244,232 +364,582 @@ fun AdminScreen(onLogout: () -> Unit) {
     var selectedEmailForDetail by remember { mutableStateOf<EmailNotification?>(null) }
     var showEmailLogs by remember { mutableStateOf(false) }
     var showCloudSyncDialog by remember { mutableStateOf(false) }
+    var showSupabaseDialog by remember { mutableStateOf(false) }
+    var showImportCsvDialog by remember { mutableStateOf(false) }
 
     val syncManager = remember { FirestoreSyncManager.getInstance(context) }
     val isCloudConnected by syncManager.isCloudConnected.collectAsState()
     val syncStatusText by syncManager.syncStatusText.collectAsState()
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Filled.Groups,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                        Column {
-                            Text(
-                                text = "Admin - Planning Équipe",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Supervision des congés & Prévention chevauchements",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    ThemeToggleIconButton()
-                    IconButton(
-                        onClick = { showCloudSyncDialog = true }
-                    ) {
-                        Box(contentAlignment = Alignment.TopEnd) {
-                            Icon(
-                                imageVector = if (isCloudConnected) Icons.Filled.CloudDone else Icons.Filled.CloudSync,
-                                contentDescription = "État de Synchronisation Cloud Multi-Téléphones",
-                                tint = if (isCloudConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
-                            )
-                            if (isCloudConnected) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981))
-                                )
-                            }
-                        }
-                    }
-                    IconButton(onClick = { selectedTab = 2 }) {
-                        Icon(
-                            imageVector = Icons.Filled.TableChart,
-                            contentDescription = "Exports & Rapports (PDF/CSV)",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = onLogout) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = "Déconnexion")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            // Navigation Tabs
-            PrimaryTabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                contentColor = MaterialTheme.colorScheme.primary
-            ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.CalendarMonth,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text("Planning", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal)
-                        }
+    val supabaseManager = remember { com.example.data.SupabaseSyncManager.getInstance(context) }
+    val isSupabaseConnected by supabaseManager.isConnected.collectAsState()
+
+    val currentLangCode by I18nManager.currentLang.collectAsState()
+    val languages = listOf(
+        "fr" to "Français",
+        "en" to "English",
+        "ar" to "العربية",
+        "de" to "Deutsch"
+    )
+
+    val adminTabContent: @Composable () -> Unit = {
+        when (selectedTab) {
+            0 -> {
+                TeamCalendarView(
+                    registeredUsers = registeredUsers,
+                    pendingRequests = pendingRequests,
+                    allRequests = dbRequests,
+                    currentUserEmail = currentUser?.email,
+                    onApproveRequest = { request ->
+                        requestToDecide = request
+                        isApproving = true
+                        adminCommentInput = "Demande approuvée par la direction."
+                        showDecisionDialog = true
+                    },
+                    onRejectRequest = { request ->
+                        requestToDecide = request
+                        isApproving = false
+                        adminCommentInput = "Effectif minimum non garanti sur cette période."
+                        showDecisionDialog = true
                     }
                 )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            BadgedBox(
-                                badge = {
-                                    if (pendingRequests.isNotEmpty()) {
-                                        Badge(
-                                            containerColor = MaterialTheme.colorScheme.error,
-                                            contentColor = MaterialTheme.colorScheme.onError
-                                        ) {
-                                            Text(pendingRequests.size.toString())
-                                        }
-                                    }
+            }
+            1 -> {
+                PendingRequestsTabView(
+                    pendingRequests = pendingRequests,
+                    onAccept = { request ->
+                        requestToDecide = request
+                        isApproving = true
+                        adminCommentInput = "Demande validée."
+                        showDecisionDialog = true
+                    },
+                    onReject = { request ->
+                        requestToDecide = request
+                        isApproving = false
+                        adminCommentInput = "Période non disponible / impératifs de service."
+                        showDecisionDialog = true
+                    }
+                )
+            }
+            2 -> {
+                MonthlyReportTab(
+                    registeredUsers = registeredUsers
+                )
+            }
+            3 -> {
+                EmailLogsTabView(
+                    sentEmails = sentEmails,
+                    onSelectEmail = { selectedEmailForDetail = it },
+                    onOpenClient = { email ->
+                        EmailNotificationService.openEmailClient(context, email)
+                    }
+                )
+            }
+            4 -> {
+                EmployeeDirectoryTab(
+                    registeredUsers = registeredUsers,
+                    onUpdateUser = { updatedUser ->
+                        coroutineScope.launch {
+                            try {
+                                val db = com.example.data.AppDatabase.getDatabase(context)
+                                db.userDao().insertUser(updatedUser) // upsert user
+                                val localStorage = com.example.data.LocalStorageManager(context)
+                                localStorage.saveUser(updatedUser, setAsActiveSession = false)
+                                
+                                // Update local state
+                                registeredUsers = registeredUsers.map { 
+                                    if (it.email == updatedUser.email) updatedUser else it 
                                 }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.PendingActions,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                
+                                snackbarHostState.showSnackbar("Poste mis à jour avec succès.")
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Erreur lors de la mise à jour.")
                             }
-                            Text("Demandes (${pendingRequests.size})", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.TableChart,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = if (selectedTab == 2) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text("Exports (PDF/CSV)", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Email,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text("Emails", fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
                 )
             }
+            5 -> {
+                com.example.ui.screens.ProfileScreen(authViewModel = authViewModel, onLogout = onLogout)
+            }
+        }
+    }
 
-            // Tab Content
-            when (selectedTab) {
-                0 -> {
-                    TeamCalendarView(
-                        registeredUsers = registeredUsers,
-                        pendingRequests = pendingRequests,
-                        onApproveRequest = { request ->
-                            requestToDecide = request
-                            isApproving = true
-                            adminCommentInput = "Demande approuvée par la direction."
-                            showDecisionDialog = true
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Switch to NavigationRail on computers, tablets or in landscape mode on phones
+        val isWideScreen = maxWidth >= 840.dp || (maxWidth > maxHeight && maxWidth >= 580.dp)
+
+        if (isWideScreen) {
+            // Adaptive Desktop / Computer layout with NavigationRail
+            Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                NavigationRail(
+                    modifier = Modifier.fillMaxHeight(),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    header = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Groups,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Admin RH",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        NavigationRailItem(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            icon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
+                            label = { Text("Planning", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        NavigationRailItem(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = {
+                                BadgedBox(
+                                    badge = {
+                                        if (pendingRequests.isNotEmpty()) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.error,
+                                                contentColor = MaterialTheme.colorScheme.onError
+                                            ) {
+                                                Text(pendingRequests.size.toString())
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.PendingActions, contentDescription = null)
+                                }
+                            },
+                            label = { Text("Demandes", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        NavigationRailItem(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            icon = { Icon(Icons.Filled.TableChart, contentDescription = null) },
+                            label = { Text("Exports", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        NavigationRailItem(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            icon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                            label = { Text("Emails", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        NavigationRailItem(
+                            selected = selectedTab == 4,
+                            onClick = { selectedTab = 4 },
+                            icon = { Icon(Icons.Filled.Groups, contentDescription = null) },
+                            label = { Text("Équipe", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        NavigationRailItem(
+                            selected = selectedTab == 5,
+                            onClick = { selectedTab = 5 },
+                            icon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                            label = { Text("Profil", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        IconButton(
+                            onClick = { showSupabaseDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    imageVector = Icons.Filled.Storage,
+                                    contentDescription = "Supabase Cloud Database & Sync",
+                                    tint = if (isSupabaseConnected) Color(0xFF3ECF8E) else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                if (isSupabaseConnected) {
+                                    Box(
+                                        modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3ECF8E))
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(
+                            onClick = { showCloudSyncDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    imageVector = if (isCloudConnected) Icons.Filled.CloudDone else Icons.Filled.CloudSync,
+                                    contentDescription = "Cloud Multi-Phone Sync",
+                                    tint = if (isCloudConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                if (isCloudConnected) {
+                                    Box(
+                                        modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981))
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(
+                            onClick = { showImportCsvDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.UploadFile,
+                                contentDescription = "Importer CSV",
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        ThemeToggleIconButton()
+                        IconButton(
+                            onClick = onLogout,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Déconnexion",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // Content Area on Desktop
+                Scaffold(
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                val currentTitle = when (selectedTab) {
+                                    0 -> com.example.ui.i18n.tr("admin_team_planning")
+                                    1 -> "${com.example.ui.i18n.tr("admin_tab_requests")} (${pendingRequests.size})"
+                                    2 -> "${com.example.ui.i18n.tr("admin_tab_stats")} (PDF / CSV / Excel)"
+                                    3 -> com.example.ui.i18n.tr("admin_tab_logs")
+                                    4 -> com.example.ui.i18n.tr("admin_tab_employees")
+                                    else -> com.example.ui.i18n.tr("prof_title")
+                                }
+                                Text(
+                                    text = currentTitle,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            actions = {
+                                // Language selection chips on desktop top bar
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(end = 12.dp)
+                                ) {
+                                    languages.forEach { (code, name) ->
+                                        FilterChip(
+                                            selected = currentLangCode == code,
+                                            onClick = { I18nManager.setLang(context, code) },
+                                            label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        )
+                                    }
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
+                        )
+                    }
+                ) { innerPadding ->
+                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                        adminTabContent()
+                    }
+                }
+            }
+        } else {
+            // Mobile Layout with TopAppBar & ScrollableTabRow
+            Scaffold(
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Groups,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Text(
+                                        text = com.example.ui.i18n.tr("admin_team_planning"),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = com.example.ui.i18n.tr("admin_supervision"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         },
-                        onRejectRequest = { request ->
-                            requestToDecide = request
-                            isApproving = false
-                            adminCommentInput = "Effectif minimum non garanti sur cette période."
-                            showDecisionDialog = true
-                        }
-                    )
-                }
-                1 -> {
-                    PendingRequestsTabView(
-                        pendingRequests = pendingRequests,
-                        onAccept = { request ->
-                            requestToDecide = request
-                            isApproving = true
-                            adminCommentInput = "Demande validée."
-                            showDecisionDialog = true
+                        actions = {
+                            ThemeToggleIconButton()
+                            IconButton(
+                                onClick = { showSupabaseDialog = true }
+                            ) {
+                                Box(contentAlignment = Alignment.TopEnd) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Storage,
+                                        contentDescription = "Supabase Cloud Database & Sync",
+                                        tint = if (isSupabaseConnected) Color(0xFF3ECF8E) else MaterialTheme.colorScheme.primary
+                                    )
+                                    if (isSupabaseConnected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF3ECF8E))
+                                        )
+                                    }
+                                }
+                            }
+                            IconButton(
+                                onClick = { showCloudSyncDialog = true }
+                            ) {
+                                Box(contentAlignment = Alignment.TopEnd) {
+                                    Icon(
+                                        imageVector = if (isCloudConnected) Icons.Filled.CloudDone else Icons.Filled.CloudSync,
+                                        contentDescription = "État de Synchronisation Cloud Multi-Téléphones",
+                                        tint = if (isCloudConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
+                                    )
+                                    if (isCloudConnected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981))
+                                        )
+                                    }
+                                }
+                            }
+                            IconButton(
+                                onClick = { showImportCsvDialog = true },
+                                modifier = Modifier.testTag("admin_topbar_import_csv_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.UploadFile,
+                                    contentDescription = "Importer l'historique des congés (CSV)",
+                                    tint = Color(0xFF0284C7)
+                                )
+                            }
+                            IconButton(onClick = { selectedTab = 2 }) {
+                                Icon(
+                                    imageVector = Icons.Filled.TableChart,
+                                    contentDescription = "Exports & Rapports (PDF/CSV)",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = onLogout) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = "Déconnexion")
+                            }
                         },
-                        onReject = { request ->
-                            requestToDecide = request
-                            isApproving = false
-                            adminCommentInput = "Période non disponible / impératifs de service."
-                            showDecisionDialog = true
-                        }
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
                     )
                 }
-                2 -> {
-                    MonthlyReportTab(
-                        registeredUsers = registeredUsers
-                    )
-                }
-                3 -> {
-                    EmailLogsTabView(
-                        sentEmails = sentEmails,
-                        onSelectEmail = { selectedEmailForDetail = it },
-                        onOpenClient = { email ->
-                            EmailNotificationService.openEmailClient(context, email)
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    // Language Selection Row (Horizontally Scrollable)
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(languages) { (code, name) ->
+                            FilterChip(
+                                selected = currentLangCode == code,
+                                onClick = { I18nManager.setLang(context, code) },
+                                label = { Text(name, style = MaterialTheme.typography.labelMedium) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
                         }
-                    )
+                    }
+
+                    // Navigation Tabs
+                    ScrollableTabRow(
+                        selectedTabIndex = selectedTab,
+                        edgePadding = 12.dp,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.CalendarMonth,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(com.example.ui.i18n.tr("admin_tab_calendar"), fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    BadgedBox(
+                                        badge = {
+                                            if (pendingRequests.isNotEmpty()) {
+                                                Badge(
+                                                    containerColor = MaterialTheme.colorScheme.error,
+                                                    contentColor = MaterialTheme.colorScheme.onError
+                                                ) {
+                                                    Text(pendingRequests.size.toString())
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PendingActions,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Text("${com.example.ui.i18n.tr("admin_tab_requests")} (${pendingRequests.size})", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.TableChart,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (selectedTab == 2) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text("${com.example.ui.i18n.tr("admin_tab_stats")} (PDF/CSV)", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        )
+                        Tab(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Email,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(com.example.ui.i18n.tr("admin_tab_logs"), fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        )
+                        Tab(
+                            selected = selectedTab == 4,
+                            onClick = { selectedTab = 4 },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Groups,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(com.example.ui.i18n.tr("admin_tab_employees"), fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        )
+                        Tab(
+                            selected = selectedTab == 5,
+                            onClick = { selectedTab = 5 },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(com.example.ui.i18n.tr("prof_title"), fontWeight = if (selectedTab == 5) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        )
+                    }
+
+                    // Tab Content
+                    adminTabContent()
                 }
             }
         }
@@ -515,7 +985,7 @@ fun AdminScreen(onLogout: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = false,
                         maxLines = 3,
-                        label = { Text("Commentaire officiel") }
+                        label = { Text(com.example.ui.i18n.tr("admin_comment")) }
                     )
 
                     Text(
@@ -575,7 +1045,7 @@ fun AdminScreen(onLogout: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { showDecisionDialog = false }) {
-                    Text("Annuler")
+                    Text(com.example.ui.i18n.tr("btn_cancel"))
                 }
             }
         )
@@ -650,7 +1120,29 @@ fun AdminScreen(onLogout: () -> Unit) {
     // Dialog for Multi-Device Cloud Synchronization Management
     if (showCloudSyncDialog) {
         CloudSyncManagementDialog(
-            onDismiss = { showCloudSyncDialog = false }
+            onDismiss = { showCloudSyncDialog = false },
+            onOpenSupabase = {
+                showCloudSyncDialog = false
+                showSupabaseDialog = true
+            }
+        )
+    }
+
+    // Dialog for Supabase Cloud Database & PostgreSQL Management
+    if (showSupabaseDialog) {
+        com.example.ui.components.SupabaseManagementDialog(
+            onDismiss = { showSupabaseDialog = false },
+            onOpenImportCsv = {
+                showSupabaseDialog = false
+                showImportCsvDialog = true
+            }
+        )
+    }
+
+    if (showImportCsvDialog) {
+        com.example.ui.components.LeaveBalanceHistoryImportDialog(
+            callerEmail = "elmzabitemohamedtaha@gmail.com",
+            onDismiss = { showImportCsvDialog = false }
         )
     }
 }
@@ -664,47 +1156,83 @@ fun AdminScreen(onLogout: () -> Unit) {
 fun TeamCalendarView(
     registeredUsers: List<User>,
     pendingRequests: List<PendingRequest>,
+    allRequests: List<com.example.data.LeaveRequestEntity> = emptyList(),
+    currentUserEmail: String? = null,
     onApproveRequest: (PendingRequest) -> Unit,
     onRejectRequest: (PendingRequest) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Current month state (Default: October 2026 to align with sample records)
-    var currentMonth by remember { mutableIntStateOf(Calendar.OCTOBER) }
-    var currentYear by remember { mutableIntStateOf(2026) }
+    val currentCal = remember { Calendar.getInstance() }
+    var currentMonth by remember { mutableIntStateOf(currentCal.get(Calendar.MONTH)) }
+    var currentYear by remember { mutableIntStateOf(currentCal.get(Calendar.YEAR)) }
     var selectedDepartment by remember { mutableStateOf("Tous") }
-    var selectedDayForDetail by remember { mutableStateOf<Int?>(13) }
-    var calendarDisplayMode by remember { mutableIntStateOf(0) } // 0: Timeline Gantt, 1: Grille Mensuelle
+    var selectedDayForDetail by remember { mutableStateOf<Int?>(currentCal.get(Calendar.DAY_OF_MONTH)) }
+    var calendarDisplayMode by remember { mutableIntStateOf(1) } // 1: Grille Mensuelle, 0: Timeline Gantt
+    var showOnlyApproved by remember { mutableStateOf(true) }
+    var showOnlyMyLeaves by remember { mutableStateOf(false) }
 
-    // Build complete team members and schedules
-    val teamMembers = remember(registeredUsers, pendingRequests) {
-        val baseMembers = mutableListOf<TeamMemberSchedule>()
+    // Build complete team members and schedules with actual leave requests
+    val teamMembers = remember(registeredUsers, allRequests, showOnlyApproved) {
+        val membersList = mutableListOf<TeamMemberSchedule>()
 
-        // Incorporate any newly registered users from DB if not present
+        // 1. Process registered users and match their leaves
         for (u in registeredUsers) {
-            val existing = baseMembers.find { it.email.equals(u.email, ignoreCase = true) }
-            if (existing == null) {
-                baseMembers.add(
+            val userLeaves = allRequests.filter { req ->
+                (req.employeeEmail.trim().equals(u.email.trim(), ignoreCase = true) ||
+                 req.employeeName.trim().equals(u.fullName.trim(), ignoreCase = true)) &&
+                if (showOnlyApproved) req.status.equals("APPROVED", ignoreCase = true) else !req.status.equals("REJECTED", ignoreCase = true)
+            }.map { it.toLeavePeriod() }
+
+            membersList.add(
+                TeamMemberSchedule(
+                    email = u.email,
+                    matricule = u.matricule,
+                    name = u.fullName,
+                    role = u.jobTitle,
+                    department = u.department,
+                    avatarUrl = u.avatarUrl,
+                    leaves = userLeaves
+                )
+            )
+        }
+
+        // 2. Also incorporate any users who have requests in allRequests but aren't in registeredUsers
+        for (req in allRequests) {
+            if (membersList.none { it.email.equals(req.employeeEmail.trim(), ignoreCase = true) || it.name.equals(req.employeeName.trim(), ignoreCase = true) }) {
+                val leaves = allRequests.filter {
+                    (it.employeeEmail.trim().equals(req.employeeEmail.trim(), ignoreCase = true) ||
+                     it.employeeName.trim().equals(req.employeeName.trim(), ignoreCase = true)) &&
+                    if (showOnlyApproved) it.status.equals("APPROVED", ignoreCase = true) else !it.status.equals("REJECTED", ignoreCase = true)
+                }.map { it.toLeavePeriod() }
+
+                membersList.add(
                     TeamMemberSchedule(
-                        email = u.email,
-                        matricule = u.matricule,
-                        name = u.fullName,
-                        role = u.jobTitle,
-                        department = u.department,
-                        avatarUrl = u.avatarUrl,
-                        leaves = emptyList()
+                        email = req.employeeEmail,
+                        matricule = "EMP-${1000 + membersList.size}",
+                        name = req.employeeName,
+                        role = "Collaborateur",
+                        department = req.department,
+                        avatarUrl = "",
+                        leaves = leaves
                     )
                 )
             }
         }
-        baseMembers
+
+        membersList
     }
 
-    // Filtered members by department
-    val filteredMembers = remember(teamMembers, selectedDepartment) {
-        if (selectedDepartment == "Tous") teamMembers
-        else teamMembers.filter { it.department.equals(selectedDepartment, ignoreCase = true) }
+    // Filtered members by department and user isolation
+    val filteredMembers = remember(teamMembers, selectedDepartment, showOnlyMyLeaves, currentUserEmail) {
+        var list: List<TeamMemberSchedule> = teamMembers
+        if (showOnlyMyLeaves && !currentUserEmail.isNullOrBlank()) {
+            list = list.filter { it.email.trim().equals(currentUserEmail.trim(), ignoreCase = true) }
+        } else if (selectedDepartment != "Tous") {
+            list = list.filter { it.department.equals(selectedDepartment, ignoreCase = true) }
+        }
+        list
     }
 
     val departments = remember(teamMembers) {
@@ -727,13 +1255,13 @@ fun TeamCalendarView(
 
     // OVERLAP DETECTION LOGIC
     // Detect days where 2 or more employees in the same department are on leave simultaneously
-    val detectedOverlaps = remember(teamMembers, currentMonth, currentYear) {
+    val detectedOverlaps = remember(teamMembers, currentMonth, currentYear, daysInMonth) {
         val overlaps = mutableListOf<TeamOverlapConflict>()
-        for (day in 1..31) {
+        for (day in 1..daysInMonth) {
             val leavesOnDay = mutableListOf<Pair<TeamMemberSchedule, LeavePeriod>>()
             for (member in teamMembers) {
                 for (leave in member.leaves) {
-                    if (leave.month == currentMonth && leave.year == currentYear && day in leave.startDay..leave.endDay) {
+                    if (leave.coversDay(day, currentMonth, currentYear)) {
                         leavesOnDay.add(Pair(member, leave))
                     }
                 }
@@ -946,6 +1474,25 @@ fun TeamCalendarView(
                             }
                         }
 
+                        // Toggle to show only approved
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        ) {
+                            Text(
+                                text = "Uniquement validés",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Switch(
+                                checked = showOnlyApproved,
+                                onCheckedChange = { showOnlyApproved = it },
+                                modifier = Modifier.scale(0.7f)
+                            )
+                        }
+
                         // Toggle Mode: Timeline Gantt vs Grid
                         Row(
                             modifier = Modifier
@@ -969,7 +1516,7 @@ fun TeamCalendarView(
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = "Timeline",
+                                        text = com.example.ui.i18n.tr("admin_timeline"),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = if (calendarDisplayMode == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -994,7 +1541,7 @@ fun TeamCalendarView(
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = "Grille",
+                                        text = com.example.ui.i18n.tr("admin_grid"),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = if (calendarDisplayMode == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1011,6 +1558,28 @@ fun TeamCalendarView(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        if (!currentUserEmail.isNullOrBlank()) {
+                            item {
+                                FilterChip(
+                                    selected = showOnlyMyLeaves,
+                                    onClick = { showOnlyMyLeaves = !showOnlyMyLeaves },
+                                    label = { Text("Mon planning uniquement", style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = if (showOnlyMyLeaves) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Filled.Person,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                )
+                            }
+                        }
                         items(departments) { dept ->
                             FilterChip(
                                 selected = selectedDepartment == dept,
@@ -1182,6 +1751,8 @@ fun TeamTimelineGanttView(
     detectedOverlaps: List<TeamOverlapConflict>,
     onSelectDay: (Int) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -1189,26 +1760,42 @@ fun TeamTimelineGanttView(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            val horizontalScrollState = rememberScrollState()
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Vue Gantt de l'équipe (${members.size} collaborateurs)",
+                    text = com.example.ui.i18n.tr("gantt_title", members.size),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
-                Text(
-                    text = "Faites défiler horizontalement →",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            horizontalScrollState.animateScrollTo(horizontalScrollState.value + 500)
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = com.example.ui.i18n.tr("scroll_horizontally"),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-
-            val horizontalScrollState = rememberScrollState()
 
             Box(
                 modifier = Modifier
@@ -1324,34 +1911,41 @@ fun TeamTimelineGanttView(
                             // Day slots for this member
                             for (d in 1..daysInMonth) {
                                 val leave = member.leaves.find {
-                                    it.month == currentMonth && it.year == currentYear && d in it.startDay..it.endDay
+                                    it.coversDay(d, currentMonth, currentYear)
                                 }
                                 val isConflictDay = detectedOverlaps.any { it.day == d && it.affectedEmployees.contains(member.name) }
 
                                 Box(
                                     modifier = Modifier
                                         .width(36.dp)
-                                        .height(30.dp)
+                                        .height(32.dp)
                                         .clickable { onSelectDay(d) }
                                         .background(
                                             when {
-                                                leave != null -> leave.color.copy(alpha = if (leave.isPending) 0.45f else 0.9f)
+                                                leave != null -> leave.color.copy(alpha = if (leave.isPending) 0.55f else 0.95f)
                                                 else -> Color.Transparent
                                             },
                                             RoundedCornerShape(4.dp)
                                         )
                                         .border(
-                                            width = if (isConflictDay) 1.5.dp else 0.5.dp,
-                                            color = if (isConflictDay) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                            width = if (isConflictDay) 1.5.dp else if (leave != null) 1.dp else 0.5.dp,
+                                            color = if (isConflictDay) MaterialTheme.colorScheme.error else if (leave != null) leave.color else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                                             shape = RoundedCornerShape(4.dp)
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (leave != null) {
                                         Text(
-                                            text = leave.type.take(2).uppercase(),
+                                            text = when {
+                                                leave.type.contains("payé", ignoreCase = true) || leave.type.contains("conge", ignoreCase = true) -> "CP"
+                                                leave.type.contains("rtt", ignoreCase = true) -> "RTT"
+                                                leave.type.contains("télé", ignoreCase = true) || leave.type.contains("tele", ignoreCase = true) -> "TT"
+                                                leave.type.contains("malad", ignoreCase = true) -> "MAL"
+                                                leave.type.contains("format", ignoreCase = true) -> "FOR"
+                                                else -> leave.type.take(2).uppercase()
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 8.sp,
+                                            fontSize = 9.sp,
                                             color = Color.White,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1444,7 +2038,7 @@ fun TeamMonthGridView(
                             // Find all leaves on this day
                             val absentMembers = members.filter { m ->
                                 m.leaves.any { l ->
-                                    l.month == currentMonth && l.year == currentYear && dayNumber in l.startDay..l.endDay
+                                    l.coversDay(dayNumber, currentMonth, currentYear)
                                 }
                             }
                             val conflict = detectedOverlaps.find { it.day == dayNumber }
@@ -1504,13 +2098,15 @@ fun TeamMonthGridView(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             absentMembers.take(2).forEach { m ->
-                                                val leave = m.leaves.first { it.month == currentMonth && it.year == currentYear && dayNumber in it.startDay..it.endDay }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(8.dp)
-                                                        .clip(CircleShape)
-                                                        .background(leave.color)
-                                                )
+                                                val leave = m.leaves.firstOrNull { it.coversDay(dayNumber, currentMonth, currentYear) }
+                                                if (leave != null) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .clip(CircleShape)
+                                                            .background(leave.color)
+                                                    )
+                                                }
                                             }
                                             if (absentMembers.size > 2) {
                                                 Text(
@@ -1568,7 +2164,7 @@ fun DayDetailInspectorCard(
 
     // Find all absences for this day
     val absences = members.flatMap { m ->
-        m.leaves.filter { l -> l.month == month && l.year == year && day in l.startDay..l.endDay }.map { Pair(m, it) }
+        m.leaves.filter { l -> l.coversDay(day, month, year) }.map { Pair(m, it) }
     }
 
     // Check if overlap exists on this day
@@ -1811,6 +2407,16 @@ fun PendingRequestsTabView(
     onAccept: (PendingRequest) -> Unit,
     onReject: (PendingRequest) -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    
+    val filteredRequests = remember(pendingRequests, searchQuery) {
+        if (searchQuery.isBlank()) pendingRequests
+        else pendingRequests.filter { 
+            it.employeeName.contains(searchQuery, ignoreCase = true) ||
+            it.dates.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1855,20 +2461,49 @@ fun PendingRequestsTabView(
         }
 
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Demandes en attente (${pendingRequests.size})",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Demandes en attente (${filteredRequests.size})",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                androidx.compose.material3.OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(com.example.ui.i18n.tr("admin_search")) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = "Rechercher",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Clear,
+                                    contentDescription = "Effacer la recherche",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
                 )
             }
         }
 
-        if (pendingRequests.isEmpty()) {
+        if (filteredRequests.isEmpty()) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -1891,16 +2526,17 @@ fun PendingRequestsTabView(
                             modifier = Modifier.size(40.dp)
                         )
                         Text(
-                            text = "Toutes les demandes ont été traitées !",
+                            text = if (pendingRequests.isEmpty()) "Toutes les demandes ont été traitées !" else "Aucune demande ne correspond à la recherche.",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                 }
             }
         } else {
-            items(pendingRequests, key = { it.id }) { request ->
+            items(filteredRequests, key = { it.id }) { request ->
                 AdminRequestCard(
                     request = request,
                     onAccept = { onAccept(request) },
@@ -2057,6 +2693,39 @@ fun AdminRequestCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            if (request.attachmentName != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                var showAttachmentDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                androidx.compose.material3.TextButton(onClick = { showAttachmentDialog = true }) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Filled.AttachFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "Voir pièce jointe: ${request.attachmentName}")
+                }
+                
+                if (showAttachmentDialog && request.attachmentUri != null) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showAttachmentDialog = false },
+                        title = { Text(request.attachmentName) },
+                        text = {
+                            coil.compose.AsyncImage(
+                                model = java.io.File(request.attachmentUri),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxWidth().height(300.dp)
+                            )
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = { showAttachmentDialog = false }) {
+                                Text("Fermer")
+                            }
+                        }
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(
@@ -2073,10 +2742,10 @@ fun AdminRequestCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Close,
-                        contentDescription = "Refuser",
+                        contentDescription = com.example.ui.i18n.tr("btn_reject"),
                         modifier = Modifier.padding(end = 4.dp)
                     )
-                    Text("Refuser")
+                    Text(com.example.ui.i18n.tr("btn_reject"))
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Button(
@@ -2089,10 +2758,10 @@ fun AdminRequestCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Check,
-                        contentDescription = "Accepter",
+                        contentDescription = com.example.ui.i18n.tr("btn_accept"),
                         modifier = Modifier.padding(end = 4.dp)
                     )
-                    Text("Accepter")
+                    Text(com.example.ui.i18n.tr("btn_accept"))
                 }
             }
         }
@@ -2181,12 +2850,15 @@ fun SentEmailCard(
 
 @Composable
 fun CloudSyncManagementDialog(
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenSupabase: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val syncManager = remember { FirestoreSyncManager.getInstance(context) }
+    val supabaseManager = remember { com.example.data.SupabaseSyncManager.getInstance(context) }
     val isConnected by syncManager.isCloudConnected.collectAsState()
+    val isSupabaseConnected by supabaseManager.isConnected.collectAsState()
     val syncStatusText by syncManager.syncStatusText.collectAsState()
     val lastSyncTime by syncManager.lastSyncTimestamp.collectAsState()
 
@@ -2304,7 +2976,7 @@ fun CloudSyncManagementDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 TextButton(onClick = { isEditingChannel = false }) {
-                                    Text("Annuler")
+                                    Text(com.example.ui.i18n.tr("btn_cancel"))
                                 }
                                 Button(
                                     onClick = {
@@ -2351,6 +3023,23 @@ fun CloudSyncManagementDialog(
                     Icon(imageVector = Icons.Filled.PhoneAndroid, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Tester la liaison entre téléphones")
+                }
+
+                if (onOpenSupabase != null) {
+                    Button(
+                        onClick = onOpenSupabase,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3ECF8E)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Filled.Storage, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isSupabaseConnected) "Gérer la liaison Supabase (Connecté)" else "Configurer la liaison Supabase Cloud",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
 
                 actionFeedback?.let { msg ->

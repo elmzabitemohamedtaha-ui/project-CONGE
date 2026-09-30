@@ -1,0 +1,14 @@
+<<<<
+                        label = { Text(screen.title) },
+====
+                        label = {
+                            val translationKey = when (screen.route) {
+                                "dashboard" -> "nav_dashboard"
+                                "request" -> "nav_request"
+                                "history" -> "nav_history"
+                                "profile" -> "nav_profile"
+                                else -> screen.title
+                            }
+                            Text(com.example.ui.i18n.tr(translationKey))
+                        },
+>>>>

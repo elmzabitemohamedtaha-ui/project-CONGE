@@ -1,23 +1,34 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,12 +41,16 @@ import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Schedule
@@ -53,15 +68,20 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,7 +92,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
+import java.io.OutputStreamWriter
+import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import com.example.data.LeaveRepository
 import com.example.data.LeaveRequestEntity
@@ -93,14 +119,22 @@ fun HistoryScreen(
     val context = LocalContext.current
     val currentUser by authViewModel?.currentUser?.collectAsState() ?: remember { mutableStateOf(null) }
     val userAvatarUrl = currentUser?.avatarUrl ?: ""
-    val userEmail = currentUser?.email ?: "mouad@gmail.com"
+    val userEmail = currentUser?.email ?: ""
     val userName = currentUser?.fullName ?: "Collaborateur"
 
     val leaveRepository = remember { LeaveRepository.getInstance(context) }
     val requests by leaveRepository.getEmployeeRequestsFlow(userEmail).collectAsState(initial = emptyList())
 
-    var selectedFilter by remember { mutableStateOf("Tous") }
-    var selectedRequestForDetail by remember { mutableStateOf<LeaveRequestEntity?>(null) }
+    // State preservation across screen rotation
+    var selectedFilter by rememberSaveable { mutableStateOf("Tous") }
+    var selectedRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+    var isCalendarExpandedInPortrait by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val selectedRequestForDetail = remember(requests, selectedRequestId) {
+        requests.find { it.id == selectedRequestId }
+    }
 
     val filteredRequests = remember(requests, selectedFilter) {
         when (selectedFilter) {
@@ -108,6 +142,40 @@ fun HistoryScreen(
             "Validés" -> requests.filter { it.status == "APPROVED" }
             "Refusés" -> requests.filter { it.status == "REJECTED" }
             else -> requests
+        }
+    }
+
+    val csvExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    OutputStreamWriter(outputStream, "UTF-8").use { writer ->
+                        // BOM for Excel
+                        writer.write("\uFEFF")
+                        writer.write("ID,Type,Date de début,Date de fin,Jours,Statut,Créé le\n")
+                        filteredRequests.forEach { req ->
+                            val statusStr = when (req.status) {
+                                "PENDING" -> "En attente"
+                                "APPROVED" -> "Approuvé"
+                                "REJECTED" -> "Refusé"
+                                else -> req.status
+                            }
+                            val type = "\"${req.leaveType.replace("\"", "\"\"")}\""
+                            val days = "${req.daysCount}"
+                            val startDate = "\"${req.startDate}\""
+                            val endDate = "\"${req.endDate}\""
+                            val created = "\"${req.createdAt}\""
+                            
+                            writer.write("${req.id},$type,$startDate,$endDate,$days,$statusStr,$created\n")
+                        }
+                    }
+                }
+                Toast.makeText(context, "Export CSV réussi", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Erreur d'export: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -131,6 +199,19 @@ fun HistoryScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.getDefault())
+                            val timestamp = sdf.format(Date())
+                            csvExportLauncher.launch("demandes_conges_$timestamp.csv")
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Download,
+                            contentDescription = "Exporter en CSV",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     ThemeToggleIconButton()
                     NotificationTopBarAction(userEmail = userEmail)
                 },
@@ -140,83 +221,291 @@ fun HistoryScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Spacer(modifier = Modifier.height(4.dp))
-            // Header & Filters
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Historique de mes demandes",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+            // Détection réactive de l'orientation et de la largeur disponible :
+            // Mode Paysage (smartphone pivoté, tablette, ordinateur) -> Disposition 2 colonnes côte-à-côte
+            // Mode Portrait (smartphone vertical) -> Disposition colonne unique fluide avec calendrier repliable
+            val isLandscapeLayout = maxWidth >= 760.dp || (maxWidth > maxHeight && maxWidth >= 480.dp)
 
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            if (isLandscapeLayout) {
+                // ==========================================
+                // DISPOSITION PAYSAGE / GRANDS ÉCRANS (2 COLONNES)
+                // ==========================================
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    val filterOptions = listOf("Tous", "En attente", "Validés", "Refusés")
-                    items(filterOptions) { filter ->
-                        val isSelected = selectedFilter == filter
-                        val count = when (filter) {
-                            "Tous" -> requests.size
-                            "En attente" -> requests.count { it.status == "PENDING" }
-                            "Validés" -> requests.count { it.status == "APPROVED" }
-                            "Refusés" -> requests.count { it.status == "REJECTED" }
-                            else -> 0
-                        }
-                        Surface(
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            shape = CircleShape,
-                            modifier = Modifier.clickable { selectedFilter = filter }
+                    // Colonne gauche (58% de largeur) : Titre, Export, Filtres et Liste des demandes
+                    Column(
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // En-tête adaptatif avec titre, compteur et bouton Export CSV
+                        HistoryHeader(
+                            requestCount = requests.size,
+                            onExportCsv = {
+                                val sdf = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.getDefault())
+                                val timestamp = sdf.format(Date())
+                                csvExportLauncher.launch("demandes_conges_$timestamp.csv")
+                            }
+                        )
+
+                        // Filtres avec badges de comptage
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = "$filter ($count)",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                            )
+                            val filterOptions = listOf("Tous", "En attente", "Validés", "Refusés")
+                            items(filterOptions) { filter ->
+                                val isSelected = selectedFilter == filter
+                                val count = when (filter) {
+                                    "Tous" -> requests.size
+                                    "En attente" -> requests.count { it.status == "PENDING" }
+                                    "Validés" -> requests.count { it.status == "APPROVED" }
+                                    "Refusés" -> requests.count { it.status == "REJECTED" }
+                                    else -> 0
+                                }
+                                Surface(
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    shape = CircleShape,
+                                    modifier = Modifier.clickable { selectedFilter = filter }
+                                ) {
+                                    Text(
+                                        text = "$filter ($count)",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Liste des demandes ou écran d'état vide sous forme de LazyColumn fluide sans risque de conflit de scroll
+                        LazyColumn(
+                            state = listState,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentPadding = PaddingValues(bottom = 16.dp)
+                        ) {
+                            if (requests.isEmpty()) {
+                                item(key = "empty_guide_landscape") {
+                                    EmptyLeaveRequestsGuide(onNavigateToRequest = onNavigateToRequest)
+                                }
+                            } else if (filteredRequests.isEmpty()) {
+                                item(key = "empty_filter_landscape") {
+                                    EmptyFilterState(
+                                        selectedFilter = selectedFilter,
+                                        onResetFilter = { selectedFilter = "Tous" }
+                                    )
+                                }
+                            } else {
+                                items(filteredRequests, key = { it.id }) { item ->
+                                    LeaveHistoryItemRow(
+                                        item = item,
+                                        onDelete = {
+                                            scope.launch {
+                                                leaveRepository.deleteLeaveRequest(item)
+                                            }
+                                        },
+                                        onClick = { selectedRequestId = item.id }
+                                    )
+                                }
+                            }
                         }
                     }
-                }
-            }
 
-            // History List or Informative Empty States
-            if (requests.isEmpty()) {
-                // User has never submitted any request yet
-                EmptyLeaveRequestsGuide(
-                    onNavigateToRequest = onNavigateToRequest
-                )
-            } else if (filteredRequests.isEmpty()) {
-                // User has requests, but none match the current filter
-                EmptyFilterState(
-                    selectedFilter = selectedFilter,
-                    onResetFilter = { selectedFilter = "Tous" }
-                )
+                    // Colonne droite (42% de largeur) : Calendrier interactif & Bilan des demandes
+                    // IMPORTANT : verticalScroll garantit un affichage sans débordement même sur un smartphone en paysage à hauteur réduite
+                    Column(
+                        modifier = Modifier
+                            .weight(0.85f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        EmployeeLeaveCalendarCard(currentUserEmail = userEmail)
+                        LeaveSummaryStatsCard(requests = requests)
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
             } else {
+                // ==========================================
+                // DISPOSITION PORTRAIT (COLONNE UNIQUE FLUIDE)
+                // ==========================================
                 LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = 32.dp)
+                    contentPadding = PaddingValues(top = 10.dp, bottom = 28.dp)
                 ) {
-                    items(filteredRequests, key = { it.id }) { item ->
-                        LeaveHistoryCard(
-                            request = item,
-                            onClick = { selectedRequestForDetail = item }
+                    // En-tête titre & Bouton Export CSV adaptatif
+                    item(key = "header") {
+                        HistoryHeader(
+                            requestCount = requests.size,
+                            onExportCsv = {
+                                val sdf = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.getDefault())
+                                val timestamp = sdf.format(Date())
+                                csvExportLauncher.launch("demandes_conges_$timestamp.csv")
+                            }
                         )
+                    }
+
+                    // Section Calendrier avec repliage animé pour préserver l'espace visuel en mode portrait
+                    item(key = "calendar_section") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { isCalendarExpandedInPortrait = !isCalendarExpandedInPortrait }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            modifier = Modifier.size(38.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.DateRange,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "Calendrier de mes congés",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = if (isCalendarExpandedInPortrait) "Appuyer pour réduire le calendrier" else "Appuyer pour voir les dates sur le calendrier",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Icon(
+                                        imageVector = if (isCalendarExpandedInPortrait) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                        contentDescription = if (isCalendarExpandedInPortrait) "Réduire" else "Agrandir",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                AnimatedVisibility(
+                                    visible = isCalendarExpandedInPortrait,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut()
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                        )
+                                        EmployeeLeaveCalendarCard(currentUserEmail = userEmail)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Filtres par statut (Tous, En attente, Validés, Refusés)
+                    item(key = "filters") {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val filterOptions = listOf("Tous", "En attente", "Validés", "Refusés")
+                            items(filterOptions) { filter ->
+                                val isSelected = selectedFilter == filter
+                                val count = when (filter) {
+                                    "Tous" -> requests.size
+                                    "En attente" -> requests.count { it.status == "PENDING" }
+                                    "Validés" -> requests.count { it.status == "APPROVED" }
+                                    "Refusés" -> requests.count { it.status == "REJECTED" }
+                                    else -> 0
+                                }
+                                Surface(
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    shape = CircleShape,
+                                    modifier = Modifier.clickable { selectedFilter = filter }
+                                ) {
+                                    Text(
+                                        text = "$filter ($count)",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Liste des demandes ou écrans d'assistance
+                    if (requests.isEmpty()) {
+                        item(key = "empty_guide") {
+                            EmptyLeaveRequestsGuide(onNavigateToRequest = onNavigateToRequest)
+                        }
+                    } else if (filteredRequests.isEmpty()) {
+                        item(key = "empty_filter") {
+                            EmptyFilterState(
+                                selectedFilter = selectedFilter,
+                                onResetFilter = { selectedFilter = "Tous" }
+                            )
+                        }
+                    } else {
+                        items(filteredRequests, key = { it.id }) { item ->
+                            LeaveHistoryItemRow(
+                                item = item,
+                                onDelete = {
+                                    scope.launch {
+                                        leaveRepository.deleteLeaveRequest(item)
+                                    }
+                                },
+                                onClick = { selectedRequestId = item.id }
+                            )
+                        }
+
+                        // Bilan statistique en fin de liste
+                        item(key = "summary_stats") {
+                            LeaveSummaryStatsCard(requests = requests)
+                        }
                     }
                 }
             }
         }
     }
 
-    // Detail Dialog
+    // Detail Dialog (avec conservation de l'état en rotation et scroll adaptatif pour écran paysage)
     selectedRequestForDetail?.let { req ->
         val statusDisplay = when (req.status) {
             "APPROVED" -> StatusConfig("Demande Validée", Color(0xFF15803D), Color(0xFFDCFCE7), Icons.Filled.CheckCircle)
@@ -225,7 +514,8 @@ fun HistoryScreen(
         }
 
         AlertDialog(
-            onDismissRequest = { selectedRequestForDetail = null },
+            onDismissRequest = { selectedRequestId = null },
+            modifier = Modifier.widthIn(max = 500.dp),
             icon = {
                 Icon(
                     imageVector = statusDisplay.icon,
@@ -238,11 +528,18 @@ fun HistoryScreen(
                 Text(
                     text = "${req.leaveType} (${req.daysCount} jour${if (req.daysCount > 1) "s" else ""})",
                     fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = statusDisplay.bgColor,
@@ -267,6 +564,22 @@ fun HistoryScreen(
                         text = "• Motif renseigné : ${req.reason}",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    
+                    val submissionDate = java.text.SimpleDateFormat("dd/MM/yyyy à HH:mm", java.util.Locale.getDefault()).format(java.util.Date(req.createdAt))
+                    Text(
+                        text = "• Fait le : $submissionDate",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    if (req.status == "APPROVED") {
+                        val approver = req.adminComment?.takeIf { it.isNotBlank() } ?: "Direction des Ressources Humaines"
+                        Text(
+                            text = "• Statut : Validé et approuvé par l'administration RH",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                    }
 
                     if (!req.adminComment.isNullOrBlank()) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -292,11 +605,241 @@ fun HistoryScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = { selectedRequestForDetail = null }) {
+                Button(onClick = { selectedRequestId = null }) {
                     Text("Fermer")
                 }
             }
         )
+    }
+}
+
+/**
+ * En-tête adaptatif pour l'écran Historique (titre, sous-titre dynamique et bouton Export CSV).
+ * Conçu pour s'ajuster avec fluidité sur tous les formats de téléphones (petits écrans, grands écrans, mode paysage, polices agrandies).
+ */
+@Composable
+private fun HistoryHeader(
+    requestCount: Int,
+    onExportCsv: () -> Unit
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val screenWidth = maxWidth
+        val isNarrow = screenWidth < 370.dp
+
+        if (isNarrow) {
+            // Disposition adaptative pour téléphones étroits ou polices agrandies :
+            // Titre sur la première ligne (sans coupure ni troncation),
+            // compteur et bouton d'action CSV sur la deuxième ligne.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Historique de mes demandes",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    softWrap = true
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (requestCount == 0) "Aucune demande enregistrée" else "$requestCount demande${if (requestCount > 1) "s" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    ExportCsvButton(onClick = onExportCsv)
+                }
+            }
+        } else {
+            // Disposition en ligne pour smartphones standards, grands formats et mode paysage
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                ) {
+                    Text(
+                        text = "Historique de mes demandes",
+                        style = if (screenWidth >= 600.dp) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 2,
+                        softWrap = true
+                    )
+                    Text(
+                        text = if (requestCount == 0) "Suivi en temps réel de vos congés" else "$requestCount demande${if (requestCount > 1) "s" else ""} enregistrée${if (requestCount > 1) "s" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                ExportCsvButton(onClick = onExportCsv)
+            }
+        }
+    }
+}
+
+/**
+ * Bouton d'export CSV tactile, accessible (zone tactile >= 48dp) et harmonieux
+ */
+@Composable
+private fun ExportCsvButton(onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+        ),
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = "Export CSV",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "CSV",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/**
+ * Rangée pour une demande avec Swipe-to-dismiss pour annuler/supprimer si le statut est PENDING
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LeaveHistoryItemRow(
+    item: LeaveRequestEntity,
+    onDelete: () -> Unit,
+    onClick: () -> Unit
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { dismissValue ->
+            if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
+                if (item.status == "PENDING") {
+                    onDelete()
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+    )
+
+    if (item.status == "PENDING") {
+        SwipeToDismissBox(
+            state = dismissState,
+            backgroundContent = {
+                val color by animateColorAsState(
+                    when (dismissState.targetValue) {
+                        SwipeToDismissBoxValue.Settled -> Color.Transparent
+                        else -> MaterialTheme.colorScheme.error
+                    },
+                    label = "bg color"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(color)
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Supprimer",
+                        tint = Color.White
+                    )
+                }
+            }
+        ) {
+            LeaveHistoryCard(
+                request = item,
+                onClick = onClick
+            )
+        }
+    } else {
+        LeaveHistoryCard(
+            request = item,
+            onClick = onClick
+        )
+    }
+}
+
+/**
+ * Carte récapitulative des statistiques de demandes (Total, Validées, En attente, Refusées)
+ */
+@Composable
+private fun LeaveSummaryStatsCard(requests: List<LeaveRequestEntity>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Bilan de vos demandes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Total soumises :", style = MaterialTheme.typography.bodyMedium)
+                Text("${requests.size}", fontWeight = FontWeight.Bold)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Validées par la direction :", style = MaterialTheme.typography.bodyMedium)
+                Text("${requests.count { it.status == "APPROVED" }}", fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("En attente d'approbation :", style = MaterialTheme.typography.bodyMedium)
+                Text("${requests.count { it.status == "PENDING" }}", fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Refusées :", style = MaterialTheme.typography.bodyMedium)
+                Text("${requests.count { it.status == "REJECTED" }}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 
@@ -306,14 +849,12 @@ fun HistoryScreen(
  */
 @Composable
 private fun EmptyLeaveRequestsGuide(
-    onNavigateToRequest: (() -> Unit)? = null
+    onNavigateToRequest: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
-
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
+        modifier = modifier
+            .fillMaxWidth()
             .padding(bottom = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -696,24 +1237,53 @@ fun LeaveHistoryCard(
                         tint = iconColor
                     )
                 }
-                Column {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     Text(
                         text = request.leaveType,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${request.startDate} - ${request.endDate}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    
+                    val submissionDate = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(request.createdAt))
+                    Text(
+                        text = "Déposée le: $submissionDate",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    if (request.status == "APPROVED") {
+                        Text(
+                            text = "Validé par la direction RH",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF15803D),
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
                     if (request.reason.isNotBlank()) {
                         Text(
                             text = request.reason,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

@@ -1,0 +1,119 @@
+<<<<
+            // CALENDAR VISUALIZATION SECTION (UPCOMING APPROVED LEAVES)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+====
+            // MANAGER DASHBOARD SECTION (FOR LEADS / MANAGERS)
+            val isManager = currentUser?.jobTitle?.let { title ->
+                title.contains("Lead", ignoreCase = true) || 
+                title.contains("Responsable", ignoreCase = true) || 
+                title.contains("Manager", ignoreCase = true)
+            } ?: false
+
+            if (isManager && currentUser != null) {
+                val allRequests by leaveRepository.getAllRequestsFlow().collectAsState(initial = emptyList())
+                val directReportsPendingRequests = allRequests.filter { 
+                    it.status == "PENDING" && 
+                    it.department == currentUser!!.department && 
+                    it.employeeEmail != currentUser!!.email 
+                }
+
+                if (directReportsPendingRequests.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Notifications,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text(
+                                    text = "À valider pour votre équipe",
+                                    style = MaterialTheme.typography.headlineSmall
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.errorContainer
+                            ) {
+                                Text(
+                                    text = "${directReportsPendingRequests.size}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        directReportsPendingRequests.forEach { req ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = req.employeeName,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "${req.leaveType} (${req.daysCount}j)",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                        ) {
+                                            Text(
+                                                text = "EN ATTENTE",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Filled.EventNote,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${req.startDate} au ${req.endDate}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // CALENDAR VISUALIZATION SECTION (UPCOMING APPROVED LEAVES)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+>>>>

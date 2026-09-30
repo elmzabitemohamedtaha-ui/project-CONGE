@@ -1,0 +1,43 @@
+<<<<
+    fun updateAvatar(newAvatarUrl: String) {
+        val user = _currentUser.value ?: return
+        val updated = user.copy(avatarUrl = newAvatarUrl.trim())
+        updateUserProfile(updated)
+    }
+
+    fun updateUserProfile(user: User) {
+        viewModelScope.launch {
+            // Update in Room Database
+            userDao.updateUser(user)
+            // Update in Local Storage
+            localStorage.saveUser(user, setAsActiveSession = true)
+            // Update in Cloud Firestore
+            firestoreSync.uploadUser(user)
+            _currentUser.value = user
+            refreshUsersList()
+        }
+    }
+====
+    fun updateAvatar(newAvatarUrl: String) {
+        val user = _currentUser.value ?: return
+        val updated = user.copy(avatarUrl = newAvatarUrl.trim())
+        updateUserProfile(updated)
+    }
+
+    fun updateUserProfile(user: User, oldEmail: String? = null) {
+        viewModelScope.launch {
+            if (oldEmail != null && oldEmail != user.email) {
+                // If email changed, we insert the new one (primary key changed)
+                userDao.insertUser(user)
+            } else {
+                userDao.updateUser(user)
+            }
+            // Update in Local Storage
+            localStorage.saveUser(user, setAsActiveSession = true)
+            // Update in Cloud Firestore
+            firestoreSync.uploadUser(user)
+            _currentUser.value = user
+            refreshUsersList()
+        }
+    }
+>>>>

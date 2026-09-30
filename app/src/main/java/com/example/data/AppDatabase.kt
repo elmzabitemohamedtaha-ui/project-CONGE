@@ -21,15 +21,15 @@ data class User(
     val fullName: String,
     val passwordHash: String,
     val jobTitle: String = "Collaborateur",
-    val department: String = "Ingénierie & IT",
-    val phone: String = "0691366836",
-    val hireDate: String = "15 Janvier 2022",
-    val officeLocation: String = "Nouacer,l'atelier",
+    val department: String = "Direction & Administration",
+    val phone: String = "",
+    val hireDate: String = "01 Janvier 2024",
+    val officeLocation: String = "Bureau Central",
     val avatarUrl: String = "",
     val paidLeaveAllowance: Int = 25,
-    val paidLeaveUsed: Int = 13,
+    val paidLeaveUsed: Int = 0,
     val rttAllowance: Int = 10,
-    val rttUsed: Int = 5
+    val rttUsed: Int = 0
 )
 
 @Entity(tableName = "leave_requests")
@@ -39,6 +39,7 @@ data class LeaveRequestEntity(
     val employeeName: String,
     val department: String,
     val leaveType: String,
+    val category: String = "STANDARD",
     val startDate: String,
     val endDate: String,
     val startDay: Int,
@@ -48,6 +49,7 @@ data class LeaveRequestEntity(
     val daysCount: Int,
     val reason: String,
     val attachmentName: String? = null,
+    val attachmentUri: String? = null,
     val status: String, // "PENDING", "APPROVED", "REJECTED"
     val createdAt: Long = System.currentTimeMillis(),
     val decisionAt: Long? = null,
@@ -86,6 +88,9 @@ interface UserDao {
 
     @Query("SELECT * FROM users")
     suspend fun getAllUsers(): List<User>
+
+    @Query("DELETE FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(:email))")
+    suspend fun deleteUserByEmail(email: String)
 }
 
 @Dao
@@ -134,10 +139,16 @@ interface LeaveRequestDao {
 
     @Delete
     suspend fun deleteRequest(request: LeaveRequestEntity)
+
+    @Query("DELETE FROM leave_requests WHERE id LIKE 'seed-%' OR id LIKE 'sample_%' OR id LIKE 'REQ-DEMO-%'")
+    suspend fun deleteDemoRequests()
 }
 
 @Dao
 interface AlertDao {
+    @Query("SELECT * FROM app_alerts ORDER BY timestamp DESC")
+    suspend fun getAllAlerts(): List<AppAlert>
+
     @Query("SELECT * FROM app_alerts WHERE LOWER(TRIM(targetUserEmail)) = LOWER(TRIM(:email)) ORDER BY timestamp DESC")
     fun getAlertsForUserFlow(email: String): Flow<List<AppAlert>>
 
@@ -164,11 +175,14 @@ interface AlertDao {
 
     @Query("DELETE FROM app_alerts WHERE LOWER(TRIM(targetUserEmail)) = LOWER(TRIM(:email))")
     suspend fun deleteAllAlertsForUser(email: String)
+
+    @Query("DELETE FROM app_alerts WHERE id LIKE 'seed-%' OR id LIKE 'demo-%' OR id LIKE 'ALERT-DEMO-%'")
+    suspend fun deleteDemoAlerts()
 }
 
 @Database(
     entities = [User::class, LeaveRequestEntity::class, AppAlert::class],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

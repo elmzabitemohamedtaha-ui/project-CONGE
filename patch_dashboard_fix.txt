@@ -1,0 +1,18 @@
+<<<<
+            if (isManager && currentUser != null) {
+                val allRequests by leaveRepository.getAllRequestsFlow().collectAsState(initial = emptyList())
+                val directReportsPendingRequests = allRequests.filter { 
+                    it.status == "PENDING" && 
+                    it.department == currentUser!!.department && 
+                    it.employeeEmail != currentUser!!.email 
+                }
+====
+            if (isManager && currentUser != null) {
+                val managerRepo = remember { com.example.data.LeaveRepository.getInstance(context) }
+                val allRequests by managerRepo.getAllRequestsFlow().collectAsState(initial = emptyList())
+                val directReportsPendingRequests = allRequests.filter { 
+                    it.status == "PENDING" && 
+                    it.department == currentUser!!.department && 
+                    it.employeeEmail != currentUser!!.email 
+                }
+>>>>

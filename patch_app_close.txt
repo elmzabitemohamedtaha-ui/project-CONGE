@@ -1,0 +1,34 @@
+<<<<
+        composable("main") {
+            MainAppScreen(
+                authViewModel = authViewModel,
+                onLogout = {
+                    authViewModel.logout()
+                    rootNavController.navigate("login") {
+                        popUpTo(0)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+====
+        composable("main") {
+            MainAppScreen(
+                authViewModel = authViewModel,
+                onLogout = {
+                    authViewModel.logout()
+                    rootNavController.navigate("login") {
+                        popUpTo(0)
+                    }
+                }
+            )
+        }
+    }
+    } // End CompositionLocalProvider
+}
+
+@Composable
+>>>>

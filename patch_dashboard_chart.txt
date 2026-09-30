@@ -1,0 +1,35 @@
+<<<<
+            if (isManager && currentUser != null) {
+                val managerRepo = remember { com.example.data.LeaveRepository.getInstance(context) }
+                val allRequests by managerRepo.getAllRequestsFlow().collectAsState(initial = emptyList())
+                val directReportsPendingRequests = allRequests.filter { 
+                    it.status == "PENDING" && 
+                    it.department == currentUser!!.department && 
+                    it.employeeEmail != currentUser!!.email 
+                }
+
+                if (directReportsPendingRequests.isNotEmpty()) {
+====
+            if (isManager && currentUser != null) {
+                val managerRepo = remember { com.example.data.LeaveRepository.getInstance(context) }
+                val allRequests by managerRepo.getAllRequestsFlow().collectAsState(initial = emptyList())
+                val directReportsPendingRequests = allRequests.filter { 
+                    it.status == "PENDING" && 
+                    it.department == currentUser!!.department && 
+                    it.employeeEmail != currentUser!!.email 
+                }
+                
+                val departmentRequests = allRequests.filter {
+                    it.department == currentUser!!.department
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Statistiques de l'équipe",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    MonthlyLeaveRequestsChart(requests = departmentRequests)
+                }
+
+                if (directReportsPendingRequests.isNotEmpty()) {
+>>>>

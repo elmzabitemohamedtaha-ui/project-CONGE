@@ -1,0 +1,31 @@
+<<<<
+data class PendingRequest(
+    val id: String,
+    val employeeName: String,
+    val employeeEmail: String,
+    val leaveType: String,
+    val dates: String,
+    val department: String = "Ingénierie & IT",
+    val startDay: Int = 12,
+    val endDay: Int = 14,
+    val month: Int = Calendar.OCTOBER,
+    val year: Int = 2026,
+    val isPending: Boolean = true
+)
+====
+data class PendingRequest(
+    val id: String,
+    val employeeName: String,
+    val employeeEmail: String,
+    val leaveType: String,
+    val dates: String,
+    val department: String = "Ingénierie & IT",
+    val startDay: Int = 12,
+    val endDay: Int = 14,
+    val month: Int = Calendar.OCTOBER,
+    val year: Int = 2026,
+    val isPending: Boolean = true,
+    val attachmentName: String? = null,
+    val attachmentUri: String? = null
+)
+>>>>

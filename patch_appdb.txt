@@ -1,0 +1,13 @@
+<<<<
+    val attachmentName: String? = null,
+    val status: String, // "PENDING", "APPROVED", "REJECTED"
+====
+    val attachmentName: String? = null,
+    val attachmentUri: String? = null,
+    val status: String, // "PENDING", "APPROVED", "REJECTED"
+>>>>
+<<<<
+@Database(entities = [User::class, LeaveRequestEntity::class, EmailNotification::class], version = 5, exportSchema = false)
+====
+@Database(entities = [User::class, LeaveRequestEntity::class, EmailNotification::class], version = 6, exportSchema = false)
+>>>>

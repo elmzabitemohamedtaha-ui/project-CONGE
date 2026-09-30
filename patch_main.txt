@@ -1,0 +1,6 @@
+<<<<
+        com.example.service.LocalNotificationHelper.createNotificationChannels(applicationContext)
+====
+        com.example.service.LocalNotificationHelper.createNotificationChannels(applicationContext)
+        com.example.ui.i18n.I18nManager.init(applicationContext)
+>>>>

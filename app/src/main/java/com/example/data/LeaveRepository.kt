@@ -23,6 +23,7 @@ class LeaveRepository private constructor(private val context: Context) {
     private val alertDao = db.alertDao()
     private val scope = CoroutineScope(Dispatchers.IO)
     private val firestoreSync = FirestoreSyncManager.getInstance(context)
+    private val supabaseSync = SupabaseSyncManager.getInstance(context)
 
     // Observable current active alert to show in Dialog
     private val _activePopupAlert = MutableStateFlow<AppAlert?>(null)
@@ -31,103 +32,25 @@ class LeaveRepository private constructor(private val context: Context) {
     init {
         LocalNotificationHelper.createNotificationChannels(context)
         scope.launch {
-            seedDefaultDataIfEmpty()
+            cleanDemoDataIfPresent()
             firestoreSync.startRealtimeListeners()
+            // If Supabase is configured, trigger initial sync
+            if (supabaseSync.isConfigured.value) {
+                supabaseSync.syncAll()
+            }
         }
     }
 
-    private suspend fun seedDefaultDataIfEmpty() {
-        val existing = leaveRequestDao.getAllRequests()
-        if (existing.isEmpty()) {
-            val defaults = listOf(
-                LeaveRequestEntity(
-                    id = "seed-1",
-                    employeeEmail = "aya@gmail.com",
-                    employeeName = "aya",
-                    department = "Ingénierie & IT",
-                    leaveType = "Congés payés",
-                    startDate = "12/10/2026",
-                    endDate = "14/10/2026",
-                    startDay = 12,
-                    endDay = 14,
-                    month = Calendar.OCTOBER,
-                    year = 2026,
-                    daysCount = 3,
-                    reason = "Congés annuels d'automne en famille",
-                    status = "PENDING",
-                    createdAt = System.currentTimeMillis() - 86400000L * 2
-                ),
-                LeaveRequestEntity(
-                    id = "seed-2",
-                    employeeEmail = "mouad@gmail.com",
-                    employeeName = "mouad elmzabite",
-                    department = "Marketing & Com",
-                    leaveType = "Maladie",
-                    startDate = "15/10/2026",
-                    endDate = "15/10/2026",
-                    startDay = 15,
-                    endDay = 15,
-                    month = Calendar.OCTOBER,
-                    year = 2026,
-                    daysCount = 1,
-                    reason = "Arrêt maladie - Rendez-vous médical",
-                    status = "PENDING",
-                    createdAt = System.currentTimeMillis() - 86400000L
-                ),
-                LeaveRequestEntity(
-                    id = "seed-3",
-                    employeeEmail = "walid@gmail.com",
-                    employeeName = "walid elmzabite",
-                    department = "Ingénierie & IT",
-                    leaveType = "Télétravail",
-                    startDate = "18/10/2026",
-                    endDate = "20/10/2026",
-                    startDay = 18,
-                    endDay = 20,
-                    month = Calendar.OCTOBER,
-                    year = 2026,
-                    daysCount = 2,
-                    reason = "Travail à distance / concentration sprint",
-                    status = "PENDING",
-                    createdAt = System.currentTimeMillis() - 43200000L
-                ),
-                LeaveRequestEntity(
-                    id = "seed-4",
-                    employeeEmail = "yassine@gmail.com",
-                    employeeName = "mohamed yassine elmzabite",
-                    department = "Ingénierie & IT",
-                    leaveType = "Congés payés",
-                    startDate = "13/10/2026",
-                    endDate = "16/10/2026",
-                    startDay = 13,
-                    endDay = 16,
-                    month = Calendar.OCTOBER,
-                    year = 2026,
-                    daysCount = 4,
-                    reason = "Repos annuel",
-                    status = "PENDING",
-                    createdAt = System.currentTimeMillis() - 21600000L
-                ),
-                LeaveRequestEntity(
-                    id = "seed-5",
-                    employeeEmail = "khadija@gmail.com",
-                    employeeName = "khadija el ferrouni",
-                    department = "Ingénierie & IT",
-                    leaveType = "RTT",
-                    startDate = "02/09/2026",
-                    endDate = "04/09/2026",
-                    startDay = 2,
-                    endDay = 4,
-                    month = Calendar.SEPTEMBER,
-                    year = 2026,
-                    daysCount = 3,
-                    reason = "Récupération temps de travail",
-                    status = "APPROVED",
-                    createdAt = System.currentTimeMillis() - 86400000L * 30,
-                    decisionAt = System.currentTimeMillis() - 86400000L * 29
-                )
-            )
-            leaveRequestDao.insertAll(defaults)
+    /**
+     * Supprime toutes les données d'exemples / de démonstration (demandes seed-*, sample_*, demo-*)
+     * pour assurer un environnement d'entreprise totalement propre et prêt pour la production.
+     */
+    private suspend fun cleanDemoDataIfPresent() {
+        try {
+            leaveRequestDao.deleteDemoRequests()
+            alertDao.deleteDemoAlerts()
+        } catch (_: Exception) {
+            // Ignore if tables are empty
         }
     }
 
@@ -149,10 +72,12 @@ class LeaveRepository private constructor(private val context: Context) {
     suspend fun submitLeaveRequest(
         user: User,
         leaveType: String,
+        category: String = "Inconnu",
         startDateStr: String,
         endDateStr: String,
         reason: String,
-        attachmentName: String? = null
+        attachmentName: String? = null,
+        attachmentUri: String? = null
     ): LeaveRequestEntity {
         val (startDay, endDay, month, year, count) = parseDateDetails(startDateStr, endDateStr)
         val requestId = UUID.randomUUID().toString()
@@ -163,6 +88,7 @@ class LeaveRepository private constructor(private val context: Context) {
             employeeName = user.fullName,
             department = user.department,
             leaveType = leaveType,
+            category = category,
             startDate = startDateStr,
             endDate = endDateStr,
             startDay = startDay,
@@ -172,15 +98,17 @@ class LeaveRepository private constructor(private val context: Context) {
             daysCount = count,
             reason = reason.ifBlank { "Demande de $leaveType" },
             attachmentName = attachmentName,
+            attachmentUri = attachmentUri,
             status = "PENDING",
             createdAt = System.currentTimeMillis()
         )
 
         leaveRequestDao.insertRequest(request)
         
-        // Push to Cloud Firestore for instant real-time synchronization with Admin and other devices
+        // Push to Cloud Firestore & Supabase for instant real-time synchronization with Admin and other devices
         scope.launch {
             firestoreSync.uploadLeaveRequest(request)
+            supabaseSync.uploadLeaveRequest(request)
         }
 
         // Notification for admin and user
@@ -206,7 +134,7 @@ class LeaveRepository private constructor(private val context: Context) {
         val now = System.currentTimeMillis()
         leaveRequestDao.updateStatus(requestId, "APPROVED", now, adminComment)
 
-        // Push status change to Firestore and Cloud Relay
+        // Push status change to Firestore and Cloud Relay & Supabase
         scope.launch {
             firestoreSync.updateLeaveRequestStatus(
                 requestId = requestId,
@@ -217,6 +145,12 @@ class LeaveRepository private constructor(private val context: Context) {
                 employeeName = req.employeeName,
                 leaveType = req.leaveType,
                 dates = "${req.startDate} - ${req.endDate}"
+            )
+            supabaseSync.updateLeaveRequestStatus(
+                requestId = requestId,
+                status = "APPROVED",
+                decisionAt = now,
+                adminComment = adminComment
             )
         }
 
@@ -230,6 +164,46 @@ class LeaveRepository private constructor(private val context: Context) {
             isApproved = true,
             adminComment = adminComment
         )
+
+        // 1.5 Schedule reminder for the leave dates
+        try {
+            val patterns = listOf("dd/MM/yyyy", "yyyy-MM-dd", "d/M/yyyy", "dd-MM-yyyy")
+            var startDate: java.util.Date? = null
+            for (pattern in patterns) {
+                if (startDate == null) {
+                    try {
+                        val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).apply { isLenient = false }
+                        startDate = sdf.parse(req.startDate.trim())
+                    } catch (_: Exception) {}
+                }
+            }
+            if (startDate != null) {
+                val cal = java.util.Calendar.getInstance()
+                cal.time = startDate
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -1)
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 9)
+                cal.set(java.util.Calendar.MINUTE, 0)
+                cal.set(java.util.Calendar.SECOND, 0)
+                
+                var triggerAt = cal.timeInMillis
+                // Si la date calculée (veille à 9h) est déjà passée (ex: congé commence aujourd'hui),
+                // on programme le rappel dans 15 secondes pour pouvoir le tester.
+                if (triggerAt <= System.currentTimeMillis()) {
+                    triggerAt = System.currentTimeMillis() + 15000
+                }
+                
+                LocalNotificationHelper.scheduleLeaveReminder(
+                    context = context,
+                    requestId = requestId,
+                    employeeName = req.employeeName,
+                    leaveType = req.leaveType,
+                    dates = "${req.startDate} - ${req.endDate}",
+                    triggerAtMillis = triggerAt
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         // 2. Send / Log formal Email
         EmailNotificationService.sendLeaveStatusEmail(
@@ -274,7 +248,7 @@ class LeaveRepository private constructor(private val context: Context) {
         val now = System.currentTimeMillis()
         leaveRequestDao.updateStatus(requestId, "REJECTED", now, adminComment)
 
-        // Push status change to Firestore and Cloud Relay
+        // Push status change to Firestore and Cloud Relay & Supabase
         scope.launch {
             firestoreSync.updateLeaveRequestStatus(
                 requestId = requestId,
@@ -285,6 +259,12 @@ class LeaveRepository private constructor(private val context: Context) {
                 employeeName = req.employeeName,
                 leaveType = req.leaveType,
                 dates = "${req.startDate} - ${req.endDate}"
+            )
+            supabaseSync.updateLeaveRequestStatus(
+                requestId = requestId,
+                status = "REJECTED",
+                decisionAt = now,
+                adminComment = adminComment
             )
         }
 
@@ -337,6 +317,14 @@ class LeaveRepository private constructor(private val context: Context) {
         )
     }
 
+    suspend fun deleteLeaveRequest(request: LeaveRequestEntity) {
+        leaveRequestDao.deleteRequest(request)
+        scope.launch {
+            firestoreSync.deleteLeaveRequest(request)
+            supabaseSync.deleteLeaveRequest(request.id)
+        }
+    }
+
 
     fun getUnreadAlertsCountFlow(email: String): Flow<Int> {
         return alertDao.getUnreadCountFlow(email)
@@ -346,6 +334,7 @@ class LeaveRepository private constructor(private val context: Context) {
         alertDao.markAlertRead(alertId)
         scope.launch {
             firestoreSync.markAlertRead(alertId)
+            supabaseSync.markAlertRead(alertId)
         }
     }
 
@@ -357,6 +346,7 @@ class LeaveRepository private constructor(private val context: Context) {
         alertDao.deleteAlertById(alertId)
         scope.launch {
             firestoreSync.deleteAlert(alertId)
+            supabaseSync.deleteAlert(alertId)
         }
     }
 

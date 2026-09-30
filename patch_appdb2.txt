@@ -1,0 +1,13 @@
+<<<<
+@Database(
+    entities = [User::class, LeaveRequestEntity::class, AppAlert::class],
+    version = 5,
+    exportSchema = false
+)
+====
+@Database(
+    entities = [User::class, LeaveRequestEntity::class, AppAlert::class],
+    version = 6,
+    exportSchema = false
+)
+>>>>

@@ -13,10 +13,11 @@ class PdfReportGeneratorTest {
         val sampleRequests = listOf(
             LeaveRequestEntity(
                 id = "1",
-                employeeEmail = "khadija@gmail.com",
-                employeeName = "khadija el ferrouni",
+                employeeEmail = "collab1@example.com",
+                employeeName = "Collaborateur Un",
                 department = "Tech / IT",
                 leaveType = "Congés payés",
+                category = "STANDARD",
                 startDate = "01/10/2026",
                 endDate = "05/10/2026",
                 startDay = 1,
@@ -29,10 +30,11 @@ class PdfReportGeneratorTest {
             ),
             LeaveRequestEntity(
                 id = "2",
-                employeeEmail = "mouad@gmail.com",
-                employeeName = "mouad daoudi",
+                employeeEmail = "employe@example.com",
+                employeeName = "Collaborateur Entreprise",
                 department = "Tech / IT",
                 leaveType = "Congés payés",
+                category = "STANDARD",
                 startDate = "10/10/2026",
                 endDate = "15/10/2026",
                 startDay = 10,
@@ -45,10 +47,11 @@ class PdfReportGeneratorTest {
             ),
             LeaveRequestEntity(
                 id = "3",
-                employeeEmail = "khadija@gmail.com",
-                employeeName = "khadija el ferrouni",
+                employeeEmail = "collab2@example.com",
+                employeeName = "Collaborateur Deux",
                 department = "Tech / IT",
                 leaveType = "RTT",
+                category = "STANDARD",
                 startDate = "20/10/2026",
                 endDate = "22/10/2026",
                 startDay = 20,
@@ -65,7 +68,7 @@ class PdfReportGeneratorTest {
 
         assertEquals(3, stats.totalRequests)
         assertEquals(11, stats.totalDays)
-        assertEquals(2, stats.uniqueEmployeesCount)
+        assertEquals(3, stats.uniqueEmployeesCount)
         assertEquals(9, stats.byType["Congés payés"])
         assertEquals(2, stats.byType["RTT"])
         assertEquals(11, stats.byDepartment["Tech / IT"])

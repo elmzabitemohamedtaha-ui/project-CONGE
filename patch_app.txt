@@ -1,0 +1,27 @@
+<<<<
+fun TimeOffApp() {
+    val rootNavController = rememberNavController()
+====
+fun TimeOffApp() {
+    val currentLang by com.example.ui.i18n.I18nManager.currentLang.collectAsState()
+    val layoutDirection = if (currentLang == "ar") androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr
+    
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides layoutDirection) {
+        val rootNavController = rememberNavController()
+>>>>
+<<<<
+        }
+    }
+}
+
+@Composable
+fun MainScreen(
+====
+        }
+    }
+    }
+}
+
+@Composable
+fun MainScreen(
+>>>>

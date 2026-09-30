@@ -1,0 +1,32 @@
+<<<<
+                    onClick = {
+                        if (currentUser != null) {
+                            val updated = currentUser!!.copy(
+                                fullName = editFullName.trim(),
+                                jobTitle = editJobTitle.trim(),
+                                department = editDepartment.trim(),
+                                phone = editPhone.trim(),
+                                officeLocation = editOffice.trim()
+                            )
+                            authViewModel?.updateUserProfile(updated)
+                            Toast.makeText(context, "Profil mis à jour avec succès !", Toast.LENGTH_SHORT).show()
+                        }
+                        showEditProfileDialog = false
+                    }
+====
+                    onClick = {
+                        if (currentUser != null) {
+                            val updated = currentUser!!.copy(
+                                email = editEmail.trim(),
+                                fullName = editFullName.trim(),
+                                jobTitle = editJobTitle.trim(),
+                                department = editDepartment.trim(),
+                                phone = editPhone.trim(),
+                                officeLocation = editOffice.trim()
+                            )
+                            authViewModel?.updateUserProfile(updated, currentUser!!.email)
+                            Toast.makeText(context, "Profil mis à jour avec succès !", Toast.LENGTH_SHORT).show()
+                        }
+                        showEditProfileDialog = false
+                    }
+>>>>

@@ -1,0 +1,9 @@
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            // Calendrier des congés approuvés
+            EmployeeLeaveCalendarCard(currentUserEmail = userEmail)
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Header & Filters
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

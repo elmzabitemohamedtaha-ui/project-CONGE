@@ -1,6 +1,8 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +11,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dashboard
@@ -83,7 +97,11 @@ val items = listOf(
 
 @Composable
 fun TimeOffApp() {
-    val rootNavController = rememberNavController()
+    val currentLang by com.example.ui.i18n.I18nManager.currentLang.collectAsState()
+    val layoutDirection = if (currentLang == "ar") androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr
+    
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides layoutDirection) {
+        val rootNavController = rememberNavController()
     val context = LocalContext.current
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModelFactory(context.applicationContext as Application)
@@ -110,6 +128,7 @@ fun TimeOffApp() {
         }
         composable("admin") {
             AdminScreen(
+                authViewModel = authViewModel,
                 onLogout = {
                     authViewModel.logout()
                     rootNavController.navigate("login") {
@@ -130,6 +149,7 @@ fun TimeOffApp() {
             )
         }
     }
+    } // End CompositionLocalProvider
 }
 
 @Composable
@@ -163,41 +183,11 @@ fun MainAppScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        bottomBar = {
-            NavigationBar {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
-                items.forEach { screen ->
-                    val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
-                    NavigationBarItem(
-                        icon = {
-                            Icon(
-                                imageVector = if (selected) screen.filledIcon else screen.outlinedIcon,
-                                contentDescription = screen.title
-                            )
-                        },
-                        label = { Text(screen.title) },
-                        selected = selected,
-                        onClick = {
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
+    val navContent: @Composable (Modifier) -> Unit = { modifier ->
         NavHost(
             navController = navController,
             startDestination = Screen.Dashboard.route,
-            modifier = Modifier.padding(innerPadding)
+            modifier = modifier
         ) {
             composable(Screen.Dashboard.route) {
                 DashboardScreen(
@@ -213,7 +203,22 @@ fun MainAppScreen(
                     }
                 )
             }
-            composable(Screen.Request.route) { RequestScreen(authViewModel = authViewModel) }
+            composable(Screen.Request.route) {
+                RequestScreen(
+                    authViewModel = authViewModel,
+                    onNavigateBack = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Screen.Dashboard.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    }
+                )
+            }
             composable(Screen.History.route) {
                 HistoryScreen(
                     authViewModel = authViewModel,
@@ -229,6 +234,165 @@ fun MainAppScreen(
                 )
             }
             composable(Screen.Profile.route) { ProfileScreen(authViewModel = authViewModel, onLogout = onLogout) }
+        }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Responsive orientation & viewport check: switch to NavigationRail on computers, tablets or landscape phones
+        val isWideScreen = maxWidth >= 720.dp || (maxWidth > maxHeight && maxWidth >= 540.dp)
+
+        if (isWideScreen) {
+            // Adaptive Desktop / Tablet / Landscape Mobile layout with left Navigation Rail
+            Row(modifier = Modifier.fillMaxSize()) {
+                NavigationRail(
+                    modifier = Modifier.fillMaxHeight(),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    header = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    androidx.compose.foundation.Image(
+                                        painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_app_logo),
+                                        contentDescription = "Logo TimeOff",
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "TimeOff",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                ) {
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentDestination = navBackStackEntry?.destination
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        items.forEach { screen ->
+                            val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
+                            val translationKey = when (screen.route) {
+                                "dashboard" -> "nav_dashboard"
+                                "request" -> "nav_request"
+                                "history" -> "nav_history"
+                                "profile" -> "nav_profile"
+                                else -> screen.title
+                            }
+                            NavigationRailItem(
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) screen.filledIcon else screen.outlinedIcon,
+                                        contentDescription = screen.title
+                                    )
+                                },
+                                label = { Text(com.example.ui.i18n.tr(translationKey)) },
+                                selected = selected,
+                                onClick = {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        com.example.ui.theme.ThemeToggleIconButton()
+                        IconButton(
+                            onClick = onLogout,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Déconnexion",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    Scaffold(
+                        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+                    ) { innerPadding ->
+                        navContent(Modifier.padding(innerPadding).fillMaxSize())
+                    }
+                }
+            }
+        } else {
+            // Mobile / Compact Layout with Bottom Navigation Bar
+            Scaffold(
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                bottomBar = {
+                    NavigationBar {
+                        val navBackStackEntry by navController.currentBackStackEntryAsState()
+                        val currentDestination = navBackStackEntry?.destination
+                        items.forEach { screen ->
+                            val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
+                            NavigationBarItem(
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) screen.filledIcon else screen.outlinedIcon,
+                                        contentDescription = screen.title
+                                    )
+                                },
+                                label = {
+                                    val translationKey = when (screen.route) {
+                                        "dashboard" -> "nav_dashboard"
+                                        "request" -> "nav_request"
+                                        "history" -> "nav_history"
+                                        "profile" -> "nav_profile"
+                                        else -> screen.title
+                                    }
+                                    Text(com.example.ui.i18n.tr(translationKey))
+                                },
+                                selected = selected,
+                                onClick = {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                navContent(Modifier.padding(innerPadding).fillMaxSize())
+            }
         }
     }
 
@@ -286,6 +450,16 @@ fun MainAppScreen(
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    
+                    if (isApproved) {
+                        Text(
+                            text = "Acceptée par la direction RH",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF15803D),
+                            textAlign = TextAlign.Center
+                        )
+                    }
 
                     Text(
                         text = "Un email de confirmation officiel a également été envoyé sur votre boîte professionnelle.",
